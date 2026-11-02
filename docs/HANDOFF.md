@@ -38,6 +38,9 @@ The official page asks teams to build the project during the hackathon. We did n
 | D14 | (2 Nov) 4 villages: Rhea Lend USDC, Rhea Lend USDT, DEX USDT-USDC-USDT.e-USDC.e, DEX FRAX-USDC (pool ids in U1). | The only set that meets SPEC F2.1 (2 lending + 2 DEX). |
 | D15 | (2 Nov) Stale = the indexer has not fetched the village successfully for 30 min. Snapshot columns renamed to `apy_base` / `apy_reward`. | DefiLlama refreshes about hourly, so the source timestamp would always look stale. Column names must match the unit we store. |
 | D16 | (2 Nov) LLM client: async-openai instead of rig. | Ayoub's choice: a plain OpenAI-compatible client is enough for one chat call per tick. |
+| D17 | (2 Nov) LLM provider is chosen by env (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`). OpenRouter for development, NEAR AI Cloud for the demo and submission. | Use existing OpenRouter credits during dev. NEAR AI Cloud (TEE private inference) keeps the `privacy` track claim true for the demo. The model id must be part of the backtest decision cache key. |
+| D18 | (2 Nov) Database design approved: `dev-docs/2026-11-02/database-design.md`. One persona field (max 2000 chars), immutable strategy configs that hold risk and goal, sim capital $1k/$10k/$100k starting in cash, server-side sessions, listing cached in DB. | Clones must keep exactly the strategy they paid for. Answers to Q-A to Q-H. |
+| D19 | (2 Nov) Indexer fetch interval is a setting, default 1 hour (may become 24 hours later). | DefiLlama refreshes about hourly. Stale threshold must follow it (open question in the design doc). |
 
 ---
 
@@ -128,9 +131,9 @@ Environment variables (planned):
 | `OPERATOR_PRIVATE_KEY` | Function-call key only. Never a full-access key. |
 | `MARKETPLACE_CONTRACT_ID` | Deployed marketplace |
 | `VAULT_CONTRACT_ID` | Deployed vault |
-| `NEAR_AI_API_KEY` | NEAR AI Cloud key |
-| `NEAR_AI_MODEL` | Chosen model id |
-| `LLM_BASE_URL` | Default `https://cloud-api.near.ai/v1` |
+| `LLM_API_KEY` | Key for the provider at `LLM_BASE_URL` (OpenRouter in dev, NEAR AI Cloud for the demo) |
+| `LLM_MODEL` | Model id for that provider (e.g. `openai/gpt-4o-mini` on OpenRouter) |
+| `LLM_BASE_URL` | Dev: `https://openrouter.ai/api/v1`. Demo: `https://cloud-api.near.ai/v1` (D17) |
 | `DEFILLAMA_API_KEY` | Only if U1 shows the Pro key is needed |
 
 ---

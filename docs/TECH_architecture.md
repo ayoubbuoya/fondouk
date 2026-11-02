@@ -90,7 +90,7 @@ Versions below were checked on 23 Oct 2026. "Latest found" means the newest vers
 | Database access | sqlx + PostgreSQL | not checked | Verify on setup | Compile-time checked SQL, team knows Postgres. |
 | NEAR client | near-api | 0.8.3 | Latest found | Official Rust client: view calls, signing, transactions. |
 | LLM client | async-openai | 0.43.0 | Latest found (2 Nov) | Plain OpenAI-compatible client, no agent framework. Point `OpenAIConfig` at the NEAR AI Cloud base URL. Chosen by Ayoub on 2 Nov instead of rig. |
-| LLM provider | NEAR AI Cloud | n/a | Verified API shape | OpenAI-compatible at `https://cloud-api.near.ai/v1`, TEE-based private inference. Model list: `https://cloud-api.near.ai/v1/model/list`. |
+| LLM provider | NEAR AI Cloud (demo), OpenRouter (dev) | n/a | Verified API shape | Chosen by env (D17). NEAR AI Cloud: OpenAI-compatible at `https://cloud-api.near.ai/v1`, TEE-based private inference, model list at `https://cloud-api.near.ai/v1/model/list`. OpenRouter: `https://openrouter.ai/api/v1`, `json_schema` output only on some models. |
 | Serialization | serde, serde_json | not checked | Verify | Standard. |
 | Logging | tracing | not checked | Verify | Structured logs for every decision. |
 
@@ -162,7 +162,7 @@ fondouk/
 ## 5. Backend modules
 
 ### 5.1 indexer
-- Every 5 minutes: for each village, fetch the latest point from DefiLlama `/chart/{pool_ref}` (base APY, reward APY, TVL) and write a row to `apr_snapshots` (D13).
+- On a configurable interval (default 1 hour, D19): for each village, fetch the latest point from DefiLlama `/chart/{pool_ref}` (base APY, reward APY, TVL) and insert it into `yield_snapshots` only if its source timestamp is new (D13). Then set `villages.last_fetched_at`.
 - Mark a village stale if the indexer has not fetched it successfully for 30 minutes (D15). The source itself refreshes about hourly, so the source timestamp is not used for staleness.
 - Broadcast new APRs over WebSocket.
 
@@ -214,23 +214,30 @@ The persona field is only returned to the owner, and never inside WebSocket mess
 
 ## 6. Data model (PostgreSQL)
 
+**The full, approved design lives in [`dev-docs/2026-11-02/database-design.md`](../dev-docs/2026-11-02/database-design.md)** (columns, constraints, indexes, rules and rollout per day). Summary:
+
 ```sql
+-- market data
+villages         (id TEXT PK, name, kind, protocol, asset, pool_ref UNIQUE, map_x, map_y, active, last_fetched_at)
+yield_snapshots  (village_id FK, ts, apy_base, apy_reward, tvl_usd, PRIMARY KEY (village_id, ts))
+-- characters
 users            (account_id TEXT PK, created_at)
-villages         (id TEXT PK, name, kind, protocol, asset, pool_ref, map_x, map_y, active BOOL)
-apr_snapshots    (village_id FK, ts TIMESTAMPTZ, apy_base NUMERIC, apy_reward NUMERIC, tvl_usd NUMERIC,
-                  PRIMARY KEY (village_id, ts))
-avatars          (id UUID PK, owner FK users, name, sprite, risk TEXT, goal TEXT,
-                  config_id FK avatar_configs, mode TEXT CHECK (mode IN ('sim','real')),
-                  cloned_from UUID NULL, listed BOOL, price_yocto NUMERIC NULL, created_at)
-avatar_configs   (id UUID PK, persona TEXT, rules TEXT, created_by FK users, created_at)
-                  -- clones point to the same config_id, persona text is never copied
-positions        (avatar_id FK, village_id FK, value_usd NUMERIC, PRIMARY KEY (avatar_id, village_id))
-decisions        (id BIGSERIAL PK, avatar_id FK, ts, source TEXT, action JSONB, valid BOOL,
-                  rejected_rule TEXT NULL, reason_public TEXT, cost_usd NUMERIC, tx_hash TEXT NULL)
-equity_snapshots (avatar_id FK, ts, equity_usd NUMERIC, source TEXT CHECK (source IN ('backtest','sim','real')),
-                  PRIMARY KEY (avatar_id, ts, source))
-clones           (tx_hash TEXT PK, source_avatar FK, new_avatar FK, buyer FK users, price_yocto NUMERIC, ts)
-arena_messages   (id BIGSERIAL PK, avatar_id FK, ts, text)
+avatar_configs   (id UUID PK, persona TEXT <= 2000, risk, goal, created_by FK users, created_at)  -- immutable
+avatars          (id UUID PK, owner FK users, config_id FK, name, sprite, mode, starting_capital_usd,
+                  cash_usd, active, cloned_from NULL, listed, price_yocto NULL, created_at)
+positions        (avatar_id FK, village_id FK, value_usd, PRIMARY KEY (avatar_id, village_id))
+-- activity
+decisions        (id BIGSERIAL PK, avatar_id FK, ts, source, input_hash, model, proposed_action JSONB NULL,
+                  applied_action JSONB, valid, rejected_rule NULL, reason_public, cost_usd, tx_hash NULL)
+equity_snapshots (avatar_id FK, source, ts, equity_usd, PRIMARY KEY (avatar_id, source, ts))
+llm_cache        (cache_key TEXT PK, response JSONB, created_at)
+arena_messages   (id BIGSERIAL PK, avatar_id FK, decision_id FK NULL, ts, text)
+-- auth
+auth_challenges  (nonce BYTEA PK, expires_at)
+sessions         (token_hash BYTEA PK, account_id FK users, expires_at, created_at)
+-- marketplace
+clones           (tx_hash TEXT PK, source_avatar FK, new_avatar FK UNIQUE, buyer FK users, price_yocto, ts)
+watcher_cursor   (name TEXT PK, last_block BIGINT)
 ```
 
 ---
