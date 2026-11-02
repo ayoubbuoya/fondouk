@@ -36,9 +36,72 @@ pub async fn list_active_villages(pool: &PgPool) -> sqlx::Result<Vec<Village>> {
     .await
 }
 
+/// Records a successful indexer fetch for `village_id` (drives the stale rule).
+///
+/// `GREATEST` keeps the newest value, so an older timestamp can never move it
+/// backwards (e.g. a slow request finishing after a newer one). Postgres'
+/// `GREATEST` ignores NULL, so the very first fetch also works.
+///
+/// # Errors
+/// `sqlx::Error::RowNotFound` when no village has this id.
+pub async fn mark_fetched(
+    pool: &PgPool,
+    village_id: &str,
+    fetched_at: DateTime<Utc>,
+) -> sqlx::Result<()> {
+    let result = sqlx::query!(
+        "UPDATE villages SET last_fetched_at = GREATEST(last_fetched_at, $2) WHERE id = $1",
+        village_id,
+        fetched_at,
+    )
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(sqlx::Error::RowNotFound);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
+
+    async fn last_fetched_at(pool: &PgPool, id: &str) -> Option<DateTime<Utc>> {
+        sqlx::query_scalar!("SELECT last_fetched_at FROM villages WHERE id = $1", id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    #[sqlx::test]
+    async fn mark_fetched_sets_the_timestamp(pool: PgPool) {
+        let t = Utc.with_ymd_and_hms(2026, 11, 2, 7, 0, 0).unwrap();
+
+        mark_fetched(&pool, "rhea-lend-usdc", t).await.unwrap();
+
+        assert_eq!(last_fetched_at(&pool, "rhea-lend-usdc").await, Some(t));
+    }
+
+    #[sqlx::test]
+    async fn mark_fetched_never_moves_backwards(pool: PgPool) {
+        let newer = Utc.with_ymd_and_hms(2026, 11, 2, 8, 0, 0).unwrap();
+        let older = Utc.with_ymd_and_hms(2026, 11, 2, 7, 0, 0).unwrap();
+
+        mark_fetched(&pool, "rhea-lend-usdc", newer).await.unwrap();
+        mark_fetched(&pool, "rhea-lend-usdc", older).await.unwrap();
+
+        assert_eq!(last_fetched_at(&pool, "rhea-lend-usdc").await, Some(newer));
+    }
+
+    #[sqlx::test]
+    async fn mark_fetched_unknown_village_is_an_error(pool: PgPool) {
+        let err = mark_fetched(&pool, "no-such-village", Utc::now())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, sqlx::Error::RowNotFound));
+    }
 
     // #[sqlx::test] gives each test a fresh temporary database with all
     // migrations applied (including the seed), then drops it afterwards.

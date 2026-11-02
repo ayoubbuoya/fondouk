@@ -39,5 +39,19 @@ Package versions in TECH_architecture §3 are often marked "verify on setup". Us
 
 - Never commit secrets. `OPERATOR_PRIVATE_KEY` must be a function-call key, never a full-access key.
 - Never deploy to mainnet or sign mainnet transactions without Ayoub's explicit OK.
-- At the end of each work session, update HANDOFF §1 (state), §3 (unknowns) and §7 (session log).
+- At the end of each work session, update HANDOFF §1 (state), §3 (unknowns) and §7 (session log). Approved decisions also go into HANDOFF §2 (`D<n>`), because teammates cannot read Claude's local memory.
 - If real mode with Rhea isn't working by day 9 (9 Nov), fall back to deposit/hold/withdraw only (SPEC F7.5). The cut order is in HANDOFF §4.
+
+## Session continuity (Claude memory)
+
+Write to the project memory folder **when something happens**, not at session end. Sessions can stop at any time.
+
+- **Decision approved** → save a `project` memory: the decision, the date, why, and the options that were rejected (so they are not proposed again). Also add it to HANDOFF §2.
+- **Phase plan approved** → save a `project` memory with the full phase list. When a phase is finished, update that same memory: mark it done, add the commit hash if one exists, and note anything that differed from the plan.
+- **Waiting on Ayoub** → save a `project` memory with the open question and the options presented. Delete it once Ayoub answers.
+- **How Ayoub wants me to work** (corrections, preferences) → save a `feedback` memory.
+- Update an existing memory instead of creating a duplicate. Delete memories that are no longer true.
+
+At the start of every session, read the memory index and the relevant memories **before** proposing anything. Continue from the active plan. Do not re-open a decision that is saved in memory or listed in HANDOFF §2 unless Ayoub asks.
+
+Saving or updating memories needs no separate approval, but mention it in "Files changed".

@@ -1,0 +1,35 @@
+{
+  "status": "success",
+  "data": [
+    {
+      "timestamp": "2026-09-21T23:01:13.479Z",
+      "tvlUsd": 1823604,
+      "apy": 7.40248,
+      "apyBase": 7.40248,
+      "apyReward": 0,
+      "il7d": null,
+      "apyBase7d": null,
+      "pricePerShare": null
+    },
+    {
+      "timestamp": "2026-11-02T06:01:21.370Z",
+      "tvlUsd": 1625385,
+      "apy": 14.01014,
+      "apyBase": 14.01014,
+      "apyReward": null,
+      "il7d": null,
+      "apyBase7d": null,
+      "pricePerShare": null
+    },
+    {
+      "timestamp": "2026-09-22T23:01:38.074Z",
+      "tvlUsd": 1352633,
+      "apy": 14.00627,
+      "apyBase": 14.00627,
+      "apyReward": null,
+      "il7d": null,
+      "apyBase7d": null,
+      "pricePerShare": null
+    }
+  ]
+}
