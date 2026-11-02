@@ -1,13 +1,10 @@
 //! Fondouk backend: one binary that will host the indexer, agent loop and API.
-
-mod api;
-mod config;
+//! The logic lives in the library (`lib.rs`); this file only wires it together.
 
 use anyhow::{Context, Result};
+use backend::{api, config::Config, db};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
-
-use crate::config::Config;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -20,6 +17,13 @@ async fn main() -> Result<()> {
         .init();
 
     let config = Config::from_env()?;
+
+    // Connect now so a stopped Postgres or wrong credentials fail at startup.
+    // The pool is handed to the indexer in Phase 3; until then it is only held open.
+    let _db_pool = db::connect(&config.database_url)
+        .await
+        .context("could not connect to the database (is Postgres running? is DATABASE_URL right?)")?;
+    tracing::info!("connected to the database");
 
     let listener = TcpListener::bind(config.bind_addr)
         .await

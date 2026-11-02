@@ -10,10 +10,16 @@ use anyhow::{Context, Result};
 const DEFAULT_BIND_ADDR: &str = "127.0.0.1:8080";
 
 /// All settings the backend needs to run.
-#[derive(Debug, Clone)]
+///
+/// `Debug` is written by hand (below) so printing the config can never leak
+/// the database password.
+#[derive(Clone)]
 pub struct Config {
     /// Address and port the HTTP server listens on (`BIND_ADDR`).
     pub bind_addr: SocketAddr,
+    /// Postgres connection string (`DATABASE_URL`). Contains the password:
+    /// never log it.
+    pub database_url: String,
 }
 
 impl Config {
@@ -25,7 +31,27 @@ impl Config {
     pub fn from_env() -> Result<Self> {
         Ok(Self {
             bind_addr: parse_bind_addr(std::env::var("BIND_ADDR").ok())?,
+            database_url: parse_database_url(std::env::var("DATABASE_URL").ok())?,
         })
+    }
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("bind_addr", &self.bind_addr)
+            .field("database_url", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Requires `DATABASE_URL` to be set and non-empty. There is no default:
+/// silently connecting to a guessed database would be worse than failing.
+/// The value is never echoed in the error, because it contains the password.
+fn parse_database_url(value: Option<String>) -> Result<String> {
+    match value {
+        Some(url) if !url.trim().is_empty() => Ok(url),
+        _ => anyhow::bail!("DATABASE_URL is not set (see backend/.env.example)"),
     }
 }
 
@@ -61,5 +87,30 @@ mod tests {
     fn rejects_an_invalid_bind_addr_with_a_clear_message() {
         let err = parse_bind_addr(Some("not-an-address".to_string())).unwrap_err();
         assert!(err.to_string().contains("BIND_ADDR"));
+    }
+
+    #[test]
+    fn database_url_is_required() {
+        assert!(parse_database_url(None).is_err());
+        assert!(parse_database_url(Some("  ".to_string())).is_err());
+    }
+
+    #[test]
+    fn debug_output_hides_the_database_password() {
+        let config = Config {
+            bind_addr: parse_bind_addr(None).unwrap(),
+            database_url: "postgres://user:secret-pw@localhost/db".to_string(),
+        };
+
+        let printed = format!("{config:?}");
+
+        assert!(!printed.contains("secret-pw"));
+        assert!(printed.contains("<redacted>"));
+    }
+
+    #[test]
+    fn accepts_a_database_url() {
+        let url = "postgres://user:pw@localhost:5432/fondouk".to_string();
+        assert_eq!(parse_database_url(Some(url.clone())).unwrap(), url);
     }
 }

@@ -9,3 +9,5 @@ target/
 # Frontend
 node_modules/
 dist/
+
+.sqlx
