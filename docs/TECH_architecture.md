@@ -89,7 +89,7 @@ Versions below were checked on 23 Oct 2026. "Latest found" means the newest vers
 | Runtime | tokio | not checked | Verify on setup | Standard async runtime. |
 | Database access | sqlx + PostgreSQL | not checked | Verify on setup | Compile-time checked SQL, team knows Postgres. |
 | NEAR client | near-api | 0.8.3 | Latest found | Official Rust client: view calls, signing, transactions. |
-| LLM framework | rig | 0.36.0 | Latest found | Already used by the team before. Use its OpenAI-compatible provider with a custom base URL. **Test custom base URL on day 1.** |
+| LLM client | async-openai | 0.43.0 | Latest found (2 Nov) | Plain OpenAI-compatible client, no agent framework. Point `OpenAIConfig` at the NEAR AI Cloud base URL. Chosen by Ayoub on 2 Nov instead of rig. |
 | LLM provider | NEAR AI Cloud | n/a | Verified API shape | OpenAI-compatible at `https://cloud-api.near.ai/v1`, TEE-based private inference. Model list: `https://cloud-api.near.ai/v1/model/list`. |
 | Serialization | serde, serde_json | not checked | Verify | Standard. |
 | Logging | tracing | not checked | Verify | Structured logs for every decision. |
@@ -108,8 +108,8 @@ Versions below were checked on 23 Oct 2026. "Latest found" means the newest vers
 
 | Source | Use | Status |
 | --- | --- | --- |
-| Rhea contracts (view calls) | Live APR, TVL, pool state | **Contract ids and methods to verify** in https://guide.rhea.finance/ and https://github.com/rhea-finance |
-| DefiLlama yields (`/yields/pools`, `/yields/chart/{pool}`) | 30-day history for backtest | **Access unclear.** Some sources say yields endpoints need a Pro key, others use them free. Test on day 1. |
+| Rhea contracts (view calls) | Optional later: fresher lending APR via `contract.main.burrow.near` `get_asset` | Verified 2 Nov (HANDOFF U4). Not used by the indexer for MVP (decision D13). |
+| DefiLlama yields (`yields.llama.fi/pools`, `yields.llama.fi/chart/{pool}`) | Live snapshots **and** 30-day history for backtest (D13) | Free, no key (verified 2 Nov). Values are APY. Refreshed about hourly. |
 | Own snapshots | Fallback history | Start recording before 1 Nov if possible, so we own a few weeks of data. |
 
 ### Hosting
@@ -162,8 +162,8 @@ fondouk/
 ## 5. Backend modules
 
 ### 5.1 indexer
-- Every 5 minutes: for each village, call the Rhea view method(s), compute base APR and reward APR, read TVL, write a row to `apr_snapshots`.
-- Mark a village stale if the last successful snapshot is older than 30 minutes.
+- Every 5 minutes: for each village, fetch the latest point from DefiLlama `/chart/{pool_ref}` (base APY, reward APY, TVL) and write a row to `apr_snapshots` (D13).
+- Mark a village stale if the indexer has not fetched it successfully for 30 minutes (D15). The source itself refreshes about hourly, so the source timestamp is not used for staleness.
 - Broadcast new APRs over WebSocket.
 
 ### 5.2 backtest
@@ -217,7 +217,7 @@ The persona field is only returned to the owner, and never inside WebSocket mess
 ```sql
 users            (account_id TEXT PK, created_at)
 villages         (id TEXT PK, name, kind, protocol, asset, pool_ref, map_x, map_y, active BOOL)
-apr_snapshots    (village_id FK, ts TIMESTAMPTZ, apr_base NUMERIC, apr_reward NUMERIC, tvl_usd NUMERIC,
+apr_snapshots    (village_id FK, ts TIMESTAMPTZ, apy_base NUMERIC, apy_reward NUMERIC, tvl_usd NUMERIC,
                   PRIMARY KEY (village_id, ts))
 avatars          (id UUID PK, owner FK users, name, sprite, risk TEXT, goal TEXT,
                   config_id FK avatar_configs, mode TEXT CHECK (mode IN ('sim','real')),
@@ -315,6 +315,6 @@ Methods:
 | Rhea Lend integration from a contract is complex | Real mode weak | High | Spike on day 3. Fallback: vault deposit and withdraw only. |
 | No free history data | Backtest weak | Medium | Record own snapshots now. Fallback: backtest with fewer days. |
 | LLM returns bad JSON or random decisions | Messy demo | Medium | Low temperature, schema, retry once, then HOLD. |
-| rig custom base URL does not work with NEAR AI Cloud | Delay | Low | Use reqwest directly with the OpenAI chat format. |
+| async-openai custom base URL does not work with NEAR AI Cloud | Delay | Low | Use reqwest directly with the OpenAI chat format. |
 | Scope too big for solo | Unfinished demo | High | P0 first. Social arena and real mode are P1. |
 | Map and art take too long | Ugly demo | Medium | Use one free tileset, simple sprites, no custom art. |

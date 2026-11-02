@@ -31,9 +31,13 @@ The official page asks teams to build the project during the hackathon. We did n
 | D7 | Strategy (persona) is hidden. Clones reference the config, never copy the text. | If the strategy is visible, nobody pays to clone. |
 | D8 | Clone payment: one-time fee in NEAR, 90% creator, 10% platform. Profit share is a next step. | Simple, shows a working on-chain payment. |
 | D9 | Vault contract with operator function-call key. | The AI key can only call vault operator methods. It cannot send funds out. Fits the `security` track. |
-| D10 | Stack: Rust (axum, sqlx, near-api, rig), near-sdk-rs contracts, React + Vite + Phaser 4 frontend, NEAR AI Cloud for inference. | Team strength in Rust and Postgres. Phaser saves time on the map. NEAR AI Cloud fits the `privacy` track. |
+| D10 | Stack: Rust (axum, sqlx, near-api, async-openai), near-sdk-rs contracts, React + Vite + Phaser 4 frontend, NEAR AI Cloud for inference. | Team strength in Rust and Postgres. Phaser saves time on the map. NEAR AI Cloud fits the `privacy` track. |
 | D11 | Modular monolith backend. | One binary is faster to build and debug solo. |
 | D12 | Shade Agent Framework is **not** used. | NEAR docs say it is no longer maintained as standalone tooling after 19 Apr 2026. |
+| D13 | (2 Nov) Live indexer and backtest both use DefiLlama yields. Rhea on-chain reads are optional later. | DEX pool APR needs volume, which view calls do not give. One source keeps live and backtest data in the same unit (APY). |
+| D14 | (2 Nov) 4 villages: Rhea Lend USDC, Rhea Lend USDT, DEX USDT-USDC-USDT.e-USDC.e, DEX FRAX-USDC (pool ids in U1). | The only set that meets SPEC F2.1 (2 lending + 2 DEX). |
+| D15 | (2 Nov) Stale = the indexer has not fetched the village successfully for 30 min. Snapshot columns renamed to `apy_base` / `apy_reward`. | DefiLlama refreshes about hourly, so the source timestamp would always look stale. Column names must match the unit we store. |
+| D16 | (2 Nov) LLM client: async-openai instead of rig. | Ayoub's choice: a plain OpenAI-compatible client is enough for one chat call per tick. |
 
 ---
 
@@ -43,13 +47,13 @@ Do these before writing product code. Each one can change the plan.
 
 | # | Question | How to check | Result |
 | --- | --- | --- | --- |
-| U1 | DefiLlama yield history for Rhea pools: free? complete? | Call `/yields/pools`, filter for Rhea, then `/yields/chart/{pool}` | _todo_ |
+| U1 | DefiLlama yield history for Rhea pools: free? complete? | Call `/yields/pools`, filter for Rhea, then `/yields/chart/{pool}` | **Free, no key** (2 Nov). `https://yields.llama.fi/pools` lists 10 Rhea pools (`rhea-lend`, `rhea-dex`, `rhea-lst`). `https://yields.llama.fi/chart/{pool}` gives about 1 point per day (43 to 46 points since 18–21 Sep) plus a latest point refreshed during the day. Enough for a 30-day daily backtest. Values are **APY** (`apyBase`, `apyReward`). For lending pools, `tvlUsd` = supplied minus borrowed (available liquidity). Candidate villages: lend USDC `1a54c607-d829-5621-87a7-e3b7debc51a1` (TVL 1.6M, 14.0%), lend USDT `d4c96d26-5869-5771-90d5-08fd54e1455e` (1.6M, 13.1%), dex USDT-USDC-USDT.e-USDC.e `2fc37959-7f8b-5016-a18d-902ab72b0d4b` (104k, 8.1%), dex FRAX-USDC `94a8d511-c96e-5503-a81d-3357877d9c8a` (11.5k, 11.3%). Only 2 Rhea DEX pools are listed. |
 | U2 | Does Rhea have a testnet deployment? | https://guide.rhea.finance/ and https://github.com/rhea-finance | _todo_ |
 | U3 | Rhea Lend contract id and supply/withdraw flow when called from another contract | Rhea docs and contract source | _todo_ |
-| U4 | Rhea view methods to compute live APR and TVL | Rhea docs and source, test with near-api view calls | _todo_ |
+| U4 | Rhea view methods to compute live APR and TVL | Rhea docs and source, test with near-api view calls | **Lending: solved** (2 Nov). Rhea Lend = `contract.main.burrow.near` (mainnet). `get_asset {"token_id": "<token>"}` returns `supply_apr` as a decimal string (`0.138` = 13.8% **APR**), `supplied.balance`, `borrowed.balance` and `farms[].rewards` (currently empty, so reward APR = 0). Balances use token decimals + `config.extra_decimals` (USDC/USDT: 6 + 12 = 18). `get_assets_paged` gives raw state **without** APR. Native USDC token = `17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1`, USDT = `usdt.tether-token.near`. **DEX pools: not solved on-chain.** Fee APR needs 24h volume, which a view call does not give. Use DefiLlama for DEX villages. |
 | U5 | Best NEAR AI Cloud model for strict JSON output | Test 2 to 3 models from `https://cloud-api.near.ai/v1/model/list` with the action schema | _todo_ |
-| U6 | rig works with NEAR AI Cloud base URL | Small test program | _todo_ |
-| U7 | Latest stable near-sdk, cargo-near, near-sandbox, React, Vite, near-connect versions | `cargo add`, `npm view <pkg> version` | _todo_ |
+| U6 | async-openai works with NEAR AI Cloud base URL | Small test program | _todo_ |
+| U7 | Latest stable near-sdk, cargo-near, near-sandbox, React, Vite, near-connect versions | `cargo add`, `npm view <pkg> version` | **Done** (2 Nov). Crates: axum 0.8.9, tokio 1.54.1, sqlx 0.9.0, near-api 0.8.7, async-openai 0.43.0 (replaces rig, D16), serde 1.0.229, serde_json 1.0.154, tracing 0.1.44, tracing-subscriber 0.3.23, dotenvy 0.15.7, reqwest 0.13.5, anyhow 1.0.104, thiserror 2.0.21, rust_decimal 1.43.0, chrono 0.4.45, near-sdk **5.30.0** (no 6.x yet), near-sandbox 0.4.0. Tools: cargo-near 0.22.0, near-cli-rs 0.30.1, sqlx-cli 0.9.0. npm: phaser 4.2.1, react 19.3.1, vite 8.3.5, typescript 7.0.2, @hot-labs/near-connect 0.12.0, near-connect-hooks 1.1.6. Note: near-sandbox has no native Windows build, so run sandbox tests in WSL. |
 
 Fill the "Result" column and commit.
 

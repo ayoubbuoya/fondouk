@@ -1,0 +1,11 @@
+# Rust build output
+target/
+
+# Secrets: never commit real env files (the .env.example templates are fine)
+.env
+.env.*
+!.env.example
+
+# Frontend
+node_modules/
+dist/
