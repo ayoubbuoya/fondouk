@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working rules for the AI
+
+The approval gate, phased implementation, simplicity-first, and end-of-task format all live in a separate file. They apply to every session in this repo:
+
+@docs/AI_WORKING_RULES.md
+
 ## Project state
 
 Fondouk: an AI town on NEAR where each character is an LLM-driven DeFi agent that moves funds between real yield "villages" (Rhea pools), with an on-chain clone marketplace. Built for NEAR HACKATHON (1–14 Nov 2026, deadline 14 Nov 23:59 UTC).
