@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT ts, equity_usd\n        FROM equity_snapshots\n        WHERE avatar_id = $1 AND source = $2\n        ORDER BY ts\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ts",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "equity_snapshots",
+            "name": "ts"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "equity_usd",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "equity_snapshots",
+            "name": "equity_usd"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "1ab49684f2dfd91327326dbde4db689154d1b4422e7a420b0703906ea508e473"
+}

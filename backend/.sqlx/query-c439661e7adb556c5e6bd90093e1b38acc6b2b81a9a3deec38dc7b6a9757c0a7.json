@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE villages SET last_fetched_at = GREATEST(last_fetched_at, $2) WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c439661e7adb556c5e6bd90093e1b38acc6b2b81a9a3deec38dc7b6a9757c0a7"
+}

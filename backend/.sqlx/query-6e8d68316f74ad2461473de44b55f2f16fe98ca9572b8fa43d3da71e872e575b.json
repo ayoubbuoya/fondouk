@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE avatars SET cloned_from = $1, listed = true, price_yocto = 1 WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6e8d68316f74ad2461473de44b55f2f16fe98ca9572b8fa43d3da71e872e575b"
+}

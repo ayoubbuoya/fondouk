@@ -47,6 +47,8 @@ The official page asks teams to build the project during the hackathon. We did n
 | D22 | (4 Nov) History import = the indexer stores **every** point of the DefiLlama chart each round (`ON CONFLICT DO NOTHING`). Points with a null `apyBase` are skipped. Rejected: a separate one-time import at startup. | One code path; gaps after downtime fill themselves. |
 | D23 | (4 Nov) A village with no point for a day: money already there keeps its last known APY, but it cannot receive new funds that day. | Same spirit as the stale rule; gaps are rare. |
 | D24 | (4 Nov) Re-running a backtest replaces the avatar's `backtest` equity rows in one transaction. Rejected: failing on the second run. | Safe re-runs, never half a track record. |
+| D25 | (4 Nov) `equity_snapshots.equity_usd` has `CHECK (equity_usd >= 0)` (migration 0004, now also in the design doc). Rejected: dropping it with a new migration. | Paper equity cannot go negative (no leverage or borrowing), so a negative value can only be a ledger bug. The DB rejects it loudly. |
+| D26 | (4 Nov) The `backend/.sqlx/` query cache is committed. Run `cargo sqlx prepare -- --all-targets` after changing any `query!` SQL. Rejected: keeping it ignored. | Teammates, CI and the deploy build can compile with `SQLX_OFFLINE=true` and no live database. |
 
 ---
 
@@ -118,6 +120,12 @@ cargo run                   # API on 127.0.0.1:8080; the indexer fetches all vil
 curl http://127.0.0.1:8080/villages
 cargo test                  # the DB user needs CREATEDB: ALTER USER fondouk CREATEDB;
 
+# build without a database (uses the committed .sqlx/ cache, D26)
+SQLX_OFFLINE=true cargo build
+# after changing any query! SQL, refresh the cache (needs the DB) and commit .sqlx/
+cargo sqlx prepare -- --all-targets
+cargo sqlx prepare --check -- --all-targets   # fails if .sqlx/ is out of date
+
 # not built yet:
 
 # frontend
@@ -172,6 +180,7 @@ Environment variables. The first five are used today (see `backend/.env.example`
 | 3 Nov 2026 | Ayoub | AI working rules copied into the repo (`docs/AI_WORKING_RULES.md`) | Same |
 | 4 Nov 2026 | Ayoub + Claude | `GET /villages` with stale flag. All 38 tests pass (CREATEDB granted). Docs catch-up (stale rule wording, how to run). Day 1 done. | Day 2 plan (history import + backtest); review the cut order (2 days behind) |
 | 4 Nov 2026 | Ayoub + Claude | Day 2 done in 5 phases: full history import (D22), users / avatar_configs / avatars and equity_snapshots tables, daily history query (UTC days), paper ledger with exact APY compounding (D21, D23), SPEC action enum, mock decide, backtest engine (D24). 99 tests pass. SPEC F6.2 and TECH 5.3 now use the APY formula. | Day 3: agent loop + vault spike. Open: how actions treat cash (MOVE from cash?) |
+| 4 Nov 2026 | Ayoub + Claude | Day 2 close-out: kept `CHECK (equity_usd >= 0)` and documented it (D25); committed the `.sqlx/` query cache for offline builds (D26). | Day 3: agent loop + vault spike. Open: how actions treat cash |
 
 ---
 

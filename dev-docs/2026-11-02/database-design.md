@@ -144,7 +144,7 @@ equity_snapshots (
   avatar_id  UUID NOT NULL REFERENCES avatars(id),
   source     TEXT NOT NULL CHECK (source IN ('backtest', 'sim', 'real')),
   ts         TIMESTAMPTZ NOT NULL,
-  equity_usd NUMERIC NOT NULL,
+  equity_usd NUMERIC NOT NULL CHECK (equity_usd >= 0),  -- no leverage or borrowing (SPEC §5), so a negative value is a ledger bug
   PRIMARY KEY (avatar_id, source, ts)        -- matches "avatar X, source Y, time range" queries
 )
 

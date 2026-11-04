@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO equity_snapshots (avatar_id, source, ts, equity_usd)\n            VALUES ($1, 'backtest', $2, $3)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Numeric"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7f81a274a6966b4acbe9530956142df17574586a9e831699574b61f7d288d095"
+}

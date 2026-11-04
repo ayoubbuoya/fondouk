@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE villages SET active = false WHERE id = 'rhea-dex-frax-usdc'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "7ab45a6f1db245beeef8377d6e1dda4128ead9725c8efd38b3f49175e97acc56"
+}

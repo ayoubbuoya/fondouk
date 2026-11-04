@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO yield_snapshots (village_id, ts, apy_base, apy_reward, tvl_usd)\n        VALUES ($1, $2, $3, $4, $5)\n        ON CONFLICT (village_id, ts) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz",
+        "Numeric",
+        "Numeric",
+        "Numeric"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "efe8076efb9215a2b6fc8fe199216457d750a0ac35e872cd0ba2009831633f7f"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO equity_snapshots (avatar_id, source, ts, equity_usd) VALUES ($1, 'live', now(), 1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5cef352a0edc50c3a9f7566cbd23590526e768702d589166b6260473a9a4b729"
+}

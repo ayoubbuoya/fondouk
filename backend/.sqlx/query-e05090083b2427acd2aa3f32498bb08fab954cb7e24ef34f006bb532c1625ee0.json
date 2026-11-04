@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM equity_snapshots WHERE avatar_id = $1 AND source = 'backtest'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e05090083b2427acd2aa3f32498bb08fab954cb7e24ef34f006bb532c1625ee0"
+}
