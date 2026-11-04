@@ -2,6 +2,7 @@
 //! (see dev-docs/2026-11-02/database-design.md).
 
 pub mod avatars;
+pub mod equity;
 pub mod villages;
 pub mod yield_snapshots;
 
