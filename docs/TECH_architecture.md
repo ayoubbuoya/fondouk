@@ -163,7 +163,7 @@ fondouk/
 
 ### 5.1 indexer
 - On a configurable interval (default 1 hour, D19): for each village, fetch the latest point from DefiLlama `/chart/{pool_ref}` (base APY, reward APY, TVL) and insert it into `yield_snapshots` only if its source timestamp is new (D13). Then set `villages.last_fetched_at`.
-- Mark a village stale if the indexer has not fetched it successfully for 30 minutes (D15). The source itself refreshes about hourly, so the source timestamp is not used for staleness.
+- Mark a village stale if the indexer has not fetched it successfully for `VILLAGE_STALE_AFTER_SECS` (default 2 x the interval = 2 hours, D20). The source itself refreshes about hourly, so the source timestamp is not used for staleness.
 - Broadcast new APRs over WebSocket.
 
 ### 5.2 backtest

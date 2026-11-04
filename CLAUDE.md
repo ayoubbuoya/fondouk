@@ -12,15 +12,18 @@ The approval gate, phased implementation, simplicity-first, and end-of-task form
 
 Fondouk: an AI town on NEAR where each character is an LLM-driven DeFi agent that moves funds between real yield "villages" (Rhea pools), with an on-chain clone marketplace. Built for NEAR HACKATHON (1–14 Nov 2026, deadline 14 Nov 23:59 UTC).
 
-As of 23 Oct 2026 the repo contains **only planning docs** in `docs/`. Product code starts on 1 Nov 2026 (hackathon rule: before that, only docs, research and throwaway spikes, nothing that becomes product code).
+As of 4 Nov 2026 only `backend/` exists (axum + sqlx + Postgres): DefiLlama indexer for 4 villages, `GET /health`, `GET /villages`. No frontend or contracts yet. The DB design is in `dev-docs/2026-11-02/database-design.md`.
 
-Read in this order: `docs/HANDOFF.md` (current state, decisions D1–D12, unknowns U1–U7, day plan) → `docs/SPEC.md` (features F1–F12, action set, guardrails) → `docs/TECH_architecture.md` (modules, schema, contracts). When code lands, update this file with real commands.
+Read in this order: `docs/HANDOFF.md` (current state, decisions D1–D20, unknowns U1–U7, day plan) → `docs/SPEC.md` (features F1–F12, action set, guardrails) → `docs/TECH_architecture.md` (modules, schema, contracts).
 
-## Planned commands (from HANDOFF §5, not yet verified)
+## Commands
 
 ```bash
-# backend (Rust, axum + sqlx + Postgres)
-cd backend && cp .env.example .env && sqlx migrate run && cargo run
+# backend (works today; DATABASE_URL in backend/.env, the DB user needs CREATEDB for tests)
+cd backend && sqlx migrate run && cargo run      # API on 127.0.0.1:8080
+cd backend && cargo test                         # all tests, incl. #[sqlx::test] with temp DBs
+cd backend && cargo clippy --all-targets -- -D warnings
+# planned, not built yet:
 # frontend (React + Vite + Phaser 4)
 cd frontend && npm install && npm run dev
 # contracts (near-sdk-rs)
@@ -39,7 +42,7 @@ Package versions in TECH_architecture §3 are often marked "verify on setup". Us
 - **Data source labels.** `backtest`, `sim` and `real` results are stored separately (`equity_snapshots.source`, `decisions.source`) and are never merged into one number in the UI.
 - **Vault security model.** The backend holds only a *function-call access key* restricted to the vault's non-payable `agent_supply` / `agent_withdraw`. Function-call keys cannot attach deposits, and NEP-141 `ft_transfer_call` needs 1 yoctoNEAR, so the *vault* attaches it when calling Rhea Lend. Caps, whitelist and cooldown are enforced on-chain as well as in the backend. Callbacks are `#[private]` and must handle failure. Only the owner can `withdraw`.
 - **Marketplace split.** 90% to the creator, 10% to the platform (`platform_fee_bps`). Any rounding remainder goes to the creator. Emits a NEP-297 `clone_purchased` event. The backend watcher is idempotent by tx hash.
-- Stale villages (snapshot older than 30 min) cannot receive funds.
+- Stale villages cannot receive funds. Stale = no successful indexer fetch for longer than `VILLAGE_STALE_AFTER_SECS` (default 2 x the 1-hour fetch interval, HANDOFF D19/D20). One rule, `indexer::is_stale`, used by the API and the agents.
 
 ## Working rules (HANDOFF §6)
 

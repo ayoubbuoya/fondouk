@@ -60,10 +60,10 @@ Priority: **P0** = must ship for demo. **P1** = should ship. **P2** = only if ti
 
 ### F2. Villages and live data (P0)
 - F2.1 At least 4 villages at launch, all from Rhea (lending markets for at least 2 assets, and at least 2 DEX pools). Exact pools are chosen on day 1 based on TVL and data availability.
-- F2.2 Indexer saves an APR snapshot for each village every 5 minutes: base APR, reward APR, TVL, timestamp.
+- F2.2 Indexer fetches each village on a configurable interval (default 1 hour, HANDOFF D19) and stores a snapshot when the source has a new point: base APY, reward APY, TVL, source timestamp. Source: DefiLlama (D13).
 - F2.3 Each village shows its current APR and 7-day APR sparkline on the map.
 - F2.4 If a data source fails, the village shows "stale" with the age of the last value, and agents treat it as unavailable.
-- Acceptance: open the town, each village shows an APR less than 10 minutes old.
+- Acceptance: open the town, each village shows its latest APY and is not stale (fetched successfully within the stale threshold, default 2 hours, D20). The UI says the data is updated hourly.
 
 ### F3. Character creation (P0)
 - F3.1 Form fields: name, sprite (pick from 6 to 10), risk level (low, medium, high), goal (one of: steady income, max yield, protect capital), free-text rules (max 500 characters), starting capital (sim only, fixed options).
@@ -163,7 +163,7 @@ Rules: `percent` is 1 to 100. `weights` sum to 100 and use only allowed villages
 
 Global rules:
 - A move is rejected if its estimated cost is larger than 7 days of the expected APR gain.
-- Stale villages (data older than 30 minutes) cannot receive funds.
+- Stale villages cannot receive funds. Stale = no successful indexer fetch for longer than `VILLAGE_STALE_AFTER_SECS` (default 2 x the fetch interval = 2 hours, HANDOFF D20).
 - In real mode, the vault contract enforces its own on-chain limits as well (see `TECH_architecture.md`). The backend checks are the first line, the contract is the last line.
 
 ---
@@ -191,7 +191,7 @@ Global rules:
 
 | # | Question | How we answer it | Owner | Deadline |
 | --- | --- | --- | --- | --- |
-| Q1 | Is DefiLlama yield history for Rhea pools free and complete? | Call the API for the chosen pools | Ayoub | 1 Nov |
+| Q1 | Is DefiLlama yield history for Rhea pools free and complete? | Call the API for the chosen pools | Ayoub | **Answered 2 Nov: free, daily points, see HANDOFF U1** |
 | Q2 | Does Rhea have a testnet deployment? If not, real mode is mainnet with tiny caps. | Check guide.rhea.finance and the Rhea GitHub | Ayoub | 1 Nov |
 | Q3 | Exact Rhea Lend contract methods for supply and withdraw from another contract. | Read Rhea docs and contract source | Ayoub | 3 Nov |
 | Q4 | Which NEAR AI Cloud model gives reliable JSON at low cost? | Test 2 to 3 models with the action schema | Ayoub | 2 Nov |

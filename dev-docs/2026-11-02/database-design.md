@@ -238,6 +238,6 @@ Deliberately left out: a `ticks` table (`ts` is enough), persona encryption at r
 
 ---
 
-## 5. Open question
+## 5. Resolved questions
 
-- **Stale threshold vs the 1-hour fetch interval.** D15 says "stale after 30 minutes without a successful fetch". With a 1-hour fetch interval (D19), every village would be stale for half of each hour. The threshold must follow the interval. Proposal: a setting that defaults to 2 times the fetch interval (2 hours). SPEC F2.2 ("every 5 minutes"), the F2 acceptance ("less than 10 minutes old") and SPEC section 6 ("older than 30 minutes") would need updating to match. Pending Ayoub's decision, needed for Phase 3.
+- **Stale threshold vs the 1-hour fetch interval** (resolved 2 Nov, HANDOFF D20). The threshold is a setting, `VILLAGE_STALE_AFTER_SECS`, default 2 x the fetch interval (2 hours), and it must be longer than the interval. SPEC F2.2, the F2 acceptance and SPEC section 6 were updated to match on 4 Nov.

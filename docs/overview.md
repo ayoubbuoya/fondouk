@@ -117,7 +117,7 @@ Fondouk turns yield strategies into living characters in a town.
 
 ## 8. Status
 
-Planning. Docs written on 23 Oct 2026. Product code starts on 1 Nov 2026.
+Building. Docs written on 23 Oct 2026; product code started on 1 Nov 2026. Current progress is in `HANDOFF.md` section 1.
 
 ## 9. Related documents
 

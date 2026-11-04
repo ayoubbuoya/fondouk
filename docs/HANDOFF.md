@@ -1,6 +1,6 @@
 # Fondouk: Handoff
 
-Last updated: 23 Oct 2026. Update this file at the end of every work session.
+Last updated: 4 Nov 2026. Update this file at the end of every work session.
 
 This file is for anyone joining the project (teammates or a coding agent). Read it first, then `overview.md`, `SPEC.md`, `TECH_architecture.md`.
 
@@ -8,8 +8,9 @@ This file is for anyone joining the project (teammates or a coding agent). Read 
 
 ## 1. Current state
 
-- **Phase:** planning done, no product code yet.
-- **Product code starts:** 1 Nov 2026, 00:00 UTC (hackathon start).
+- **Phase:** Day 1 backend done on 4 Nov (about 2 days behind the day plan in section 4). Next: Day 2, history import + backtest engine.
+- **What runs today:** `backend/` (axum + sqlx + Postgres). DefiLlama indexer for the 4 villages (D13, D14), fetching every hour (D19). `GET /health`, `GET /villages` (latest yield + stale flag). 38 tests pass. No frontend or contracts yet.
+- **Product code started:** 1 Nov 2026 (hackathon start).
 - **Deadline:** 14 Nov 2026, 23:59 UTC. Repo public + demo post on X + one submission.
 - **Team:** Ayoub (lead, full-stack, Rust and contracts), starting solo. Teammates join later.
 
@@ -36,11 +37,12 @@ The official page asks teams to build the project during the hackathon. We did n
 | D12 | Shade Agent Framework is **not** used. | NEAR docs say it is no longer maintained as standalone tooling after 19 Apr 2026. |
 | D13 | (2 Nov) Live indexer and backtest both use DefiLlama yields. Rhea on-chain reads are optional later. | DEX pool APR needs volume, which view calls do not give. One source keeps live and backtest data in the same unit (APY). |
 | D14 | (2 Nov) 4 villages: Rhea Lend USDC, Rhea Lend USDT, DEX USDT-USDC-USDT.e-USDC.e, DEX FRAX-USDC (pool ids in U1). | The only set that meets SPEC F2.1 (2 lending + 2 DEX). |
-| D15 | (2 Nov) Stale = the indexer has not fetched the village successfully for 30 min. Snapshot columns renamed to `apy_base` / `apy_reward`. | DefiLlama refreshes about hourly, so the source timestamp would always look stale. Column names must match the unit we store. |
+| D15 | (2 Nov) Stale = the indexer has not fetched the village successfully for 30 min (threshold replaced by D20). Snapshot columns renamed to `apy_base` / `apy_reward`. | DefiLlama refreshes about hourly, so the source timestamp would always look stale. Column names must match the unit we store. |
 | D16 | (2 Nov) LLM client: async-openai instead of rig. | Ayoub's choice: a plain OpenAI-compatible client is enough for one chat call per tick. |
 | D17 | (2 Nov) LLM provider is chosen by env (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`). OpenRouter for development, NEAR AI Cloud for the demo and submission. | Use existing OpenRouter credits during dev. NEAR AI Cloud (TEE private inference) keeps the `privacy` track claim true for the demo. The model id must be part of the backtest decision cache key. |
 | D18 | (2 Nov) Database design approved: `dev-docs/2026-11-02/database-design.md`. One persona field (max 2000 chars), immutable strategy configs that hold risk and goal, sim capital $1k/$10k/$100k starting in cash, server-side sessions, listing cached in DB. | Clones must keep exactly the strategy they paid for. Answers to Q-A to Q-H. |
-| D19 | (2 Nov) Indexer fetch interval is a setting, default 1 hour (may become 24 hours later). | DefiLlama refreshes about hourly. Stale threshold must follow it (open question in the design doc). |
+| D19 | (2 Nov) Indexer fetch interval is a setting, default 1 hour (may become 24 hours later). | DefiLlama refreshes about hourly. Stale threshold must follow it (see D20). |
+| D20 | (2 Nov) Stale threshold is a setting, `VILLAGE_STALE_AFTER_SECS`, default 2 x the fetch interval (2 hours), and it must be longer than the interval. Rejected: a fixed value. | A 30-minute threshold with an hourly fetch would make every village stale half of the time. One missed fetch is tolerated, two in a row make the village stale. |
 
 ---
 
@@ -54,8 +56,8 @@ Do these before writing product code. Each one can change the plan.
 | U2 | Does Rhea have a testnet deployment? | https://guide.rhea.finance/ and https://github.com/rhea-finance | _todo_ |
 | U3 | Rhea Lend contract id and supply/withdraw flow when called from another contract | Rhea docs and contract source | _todo_ |
 | U4 | Rhea view methods to compute live APR and TVL | Rhea docs and source, test with near-api view calls | **Lending: solved** (2 Nov). Rhea Lend = `contract.main.burrow.near` (mainnet). `get_asset {"token_id": "<token>"}` returns `supply_apr` as a decimal string (`0.138` = 13.8% **APR**), `supplied.balance`, `borrowed.balance` and `farms[].rewards` (currently empty, so reward APR = 0). Balances use token decimals + `config.extra_decimals` (USDC/USDT: 6 + 12 = 18). `get_assets_paged` gives raw state **without** APR. Native USDC token = `17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1`, USDT = `usdt.tether-token.near`. **DEX pools: not solved on-chain.** Fee APR needs 24h volume, which a view call does not give. Use DefiLlama for DEX villages. |
-| U5 | Best NEAR AI Cloud model for strict JSON output | Test 2 to 3 models from `https://cloud-api.near.ai/v1/model/list` with the action schema | _todo_ |
-| U6 | async-openai works with NEAR AI Cloud base URL | Small test program | _todo_ |
+| U5 | Best model for strict JSON output | Test 2 to 3 models with the action schema: on OpenRouter first (dev, D17), then on NEAR AI Cloud (`https://cloud-api.near.ai/v1/model/list`) before the demo | _todo_ (needed for Day 3) |
+| U6 | async-openai works with the OpenRouter and NEAR AI Cloud base URLs | Small test program | _todo_ (needed for Day 3). Docs confirm a custom base URL is supported; not tested yet. |
 | U7 | Latest stable near-sdk, cargo-near, near-sandbox, React, Vite, near-connect versions | `cargo add`, `npm view <pkg> version` | **Done** (2 Nov). Crates: axum 0.8.9, tokio 1.54.1, sqlx 0.9.0, near-api 0.8.7, async-openai 0.43.0 (replaces rig, D16), serde 1.0.229, serde_json 1.0.154, tracing 0.1.44, tracing-subscriber 0.3.23, dotenvy 0.15.7, reqwest 0.13.5, anyhow 1.0.104, thiserror 2.0.21, rust_decimal 1.43.0, chrono 0.4.45, near-sdk **5.30.0** (no 6.x yet), near-sandbox 0.4.0. Tools: cargo-near 0.22.0, near-cli-rs 0.30.1, sqlx-cli 0.9.0. npm: phaser 4.2.1, react 19.3.1, vite 8.3.5, typescript 7.0.2, @hot-labs/near-connect 0.12.0, near-connect-hooks 1.1.6. Note: near-sandbox has no native Windows build, so run sandbox tests in WSL. |
 
 Fill the "Result" column and commit.
@@ -75,7 +77,7 @@ Times are rough. P0 first, always.
 ### Week 1
 | Day | Date | Goal | Done when |
 | --- | --- | --- | --- |
-| 1 | 1 Nov | Repo skeleton, Postgres + migrations, axum hello, indexer for 4 villages | APR rows appear every 5 min |
+| 1 | 1 Nov | Repo skeleton, Postgres + migrations, axum hello, indexer for 4 villages | Yield rows stored every hour (D19). **Done 4 Nov** |
 | 2 | 2 Nov | History import + backtest engine (with mock decide) | 30 equity rows for a test avatar |
 | 3 | 3 Nov | Agent loop: prompt, LLM call, schema parse, guardrails. **Vault spike** (Rhea Lend call flow) | 3 ticks logged for 5 avatars. Spike result written in this file |
 | 4 | 4 Nov | Sim ledger + cost model + tests | Cost and accrual tests pass |
@@ -98,16 +100,21 @@ Times are rough. P0 first, always.
 
 ---
 
-## 5. How to run (to be filled on day 1)
+## 5. How to run
 
 ```bash
-# prerequisites: Rust stable, cargo-near, Node LTS, PostgreSQL, a NEAR testnet account
+# prerequisites: Rust stable, sqlx-cli, PostgreSQL (later also: cargo-near, Node LTS, a NEAR testnet account)
 
-# backend
+# backend (works today)
 cd backend
-cp .env.example .env        # fill values, never commit .env
-sqlx migrate run
-cargo run
+cp .env.example .env        # set DATABASE_URL; never commit .env
+sqlx database create
+sqlx migrate run            # creates villages + yield_snapshots, seeds the 4 villages
+cargo run                   # API on 127.0.0.1:8080; the indexer fetches all villages at startup
+curl http://127.0.0.1:8080/villages
+cargo test                  # the DB user needs CREATEDB: ALTER USER fondouk CREATEDB;
+
+# not built yet:
 
 # frontend
 cd frontend
@@ -120,11 +127,15 @@ cargo near build
 cargo test
 ```
 
-Environment variables (planned):
+Environment variables. The first five are used today (see `backend/.env.example`); the rest are planned.
 
 | Name | Purpose |
 | --- | --- |
-| `DATABASE_URL` | Postgres connection |
+| `DATABASE_URL` | Postgres connection (required) |
+| `BIND_ADDR` | HTTP listen address, default `127.0.0.1:8080` |
+| `RUST_LOG` | Log level, e.g. `info,backend=debug` |
+| `INDEXER_INTERVAL_SECS` | Seconds between indexer rounds, default 3600, minimum 60 (D19) |
+| `VILLAGE_STALE_AFTER_SECS` | Stale threshold, default 2 x the interval, must be longer than it (D20) |
 | `NEAR_NETWORK` | `testnet` or `mainnet` |
 | `NEAR_RPC_URL` | RPC endpoint |
 | `OPERATOR_ACCOUNT_ID` | Account that owns the vault operator function-call key |
@@ -134,7 +145,6 @@ Environment variables (planned):
 | `LLM_API_KEY` | Key for the provider at `LLM_BASE_URL` (OpenRouter in dev, NEAR AI Cloud for the demo) |
 | `LLM_MODEL` | Model id for that provider (e.g. `openai/gpt-4o-mini` on OpenRouter) |
 | `LLM_BASE_URL` | Dev: `https://openrouter.ai/api/v1`. Demo: `https://cloud-api.near.ai/v1` (D17) |
-| `DEFILLAMA_API_KEY` | Only if U1 shows the Pro key is needed |
 
 ---
 
@@ -154,6 +164,9 @@ Environment variables (planned):
 | Date | Who | What changed | Next step |
 | --- | --- | --- | --- |
 | 23 Oct 2026 | Ayoub + Claude | Idea, name, docs (overview, SPEC, TECH_architecture, HANDOFF) | Resolve unknowns U1 to U7 |
+| 2 Nov 2026 | Ayoub + Claude | Tools installed. U1, U4, U7 resolved. Decisions D13 to D20 (DefiLlama source, villages, async-openai, LLM provider by env, DB design in `dev-docs/2026-11-02/database-design.md`, fetch interval, stale threshold). Backend skeleton, villages + yield_snapshots storage, DefiLlama indexer. | Finish Day 1 (`GET /villages`) |
+| 3 Nov 2026 | Ayoub | AI working rules copied into the repo (`docs/AI_WORKING_RULES.md`) | Same |
+| 4 Nov 2026 | Ayoub + Claude | `GET /villages` with stale flag. All 38 tests pass (CREATEDB granted). Docs catch-up (stale rule wording, how to run). Day 1 done. | Day 2 plan (history import + backtest); review the cut order (2 days behind) |
 
 ---
 
