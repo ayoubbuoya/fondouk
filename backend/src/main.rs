@@ -58,7 +58,11 @@ async fn main() -> Result<()> {
     tracing::info!("listening on {}", config.bind_addr);
 
     let mut server_shutdown = shutdown_rx;
-    axum::serve(listener, api::router())
+    let app_state = api::AppState {
+        db: db_pool,
+        village_stale_after: config.village_stale_after,
+    };
+    axum::serve(listener, api::router(app_state))
         .with_graceful_shutdown(async move { indexer::stop_requested(&mut server_shutdown).await })
         .await
         .context("HTTP server stopped with an error")?;
