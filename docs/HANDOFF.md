@@ -43,6 +43,10 @@ The official page asks teams to build the project during the hackathon. We did n
 | D18 | (2 Nov) Database design approved: `dev-docs/2026-11-02/database-design.md`. One persona field (max 2000 chars), immutable strategy configs that hold risk and goal, sim capital $1k/$10k/$100k starting in cash, server-side sessions, listing cached in DB. | Clones must keep exactly the strategy they paid for. Answers to Q-A to Q-H. |
 | D19 | (2 Nov) Indexer fetch interval is a setting, default 1 hour (may become 24 hours later). | DefiLlama refreshes about hourly. Stale threshold must follow it (see D20). |
 | D20 | (2 Nov) Stale threshold is a setting, `VILLAGE_STALE_AFTER_SECS`, default 2 x the fetch interval (2 hours), and it must be longer than the interval. Rejected: a fixed value. | A 30-minute threshold with an hourly fetch would make every village stale half of the time. One missed fetch is tolerated, two in a row make the village stale. |
+| D21 | (4 Nov) Yield accrues from APY with exact daily compounding: `value * (1 + apy/100)^(1/365)` per day, using the `maths` feature of `rust_decimal`. Rejected: simple `apy/365` (overstates about 1 point per year at 14%), converting APY to APR first (same math, extra step). | We store APY (D13); SPEC F6.2's APR formula would overstate returns. |
+| D22 | (4 Nov) History import = the indexer stores **every** point of the DefiLlama chart each round (`ON CONFLICT DO NOTHING`). Points with a null `apyBase` are skipped. Rejected: a separate one-time import at startup. | One code path; gaps after downtime fill themselves. |
+| D23 | (4 Nov) A village with no point for a day: money already there keeps its last known APY, but it cannot receive new funds that day. | Same spirit as the stale rule; gaps are rare. |
+| D24 | (4 Nov) Re-running a backtest replaces the avatar's `backtest` equity rows in one transaction. Rejected: failing on the second run. | Safe re-runs, never half a track record. |
 
 ---
 

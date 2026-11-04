@@ -1,5 +1,6 @@
-//! Indexer: on a fixed interval, fetches the latest yield of every active village
-//! from DefiLlama (D13), stores new points and records the successful fetch.
+//! Indexer: on a fixed interval, fetches the yield chart of every active village
+//! from DefiLlama (D13), stores every point not seen before (this doubles as the
+//! backtest history import, D22) and records the successful fetch.
 //!
 //! A failing village is logged and skipped; it is NOT marked as fetched, so it
 //! becomes stale on its own after `VILLAGE_STALE_AFTER_SECS` (D15, D19).
@@ -16,6 +17,7 @@ use tokio::time::MissedTickBehavior;
 
 use crate::db::villages::{self, Village};
 use crate::db::yield_snapshots::{self, YieldSnapshot};
+use defillama::YieldPoint;
 
 /// Runs until `shutdown` turns `true`. The first round starts immediately.
 ///
@@ -70,28 +72,48 @@ pub async fn index_once(pool: &PgPool, http: &reqwest::Client) {
     }
 }
 
-/// Fetches, stores and marks one village. Any error leaves `last_fetched_at` unchanged.
+/// Fetches the whole chart of one village, stores every point it does not have
+/// yet (this is also the backtest history import, D22), then marks the village
+/// as fetched. Any error leaves `last_fetched_at` unchanged.
 async fn index_village(pool: &PgPool, http: &reqwest::Client, village: &Village) -> Result<()> {
-    let point = defillama::fetch_latest_point(http, &village.pool_ref).await?;
+    let chart = defillama::fetch_chart(http, &village.pool_ref).await?;
 
-    let snapshot = YieldSnapshot {
-        village_id: village.id.clone(),
-        ts: point.ts,
-        apy_base: point.apy_base,
-        apy_reward: point.apy_reward,
-        tvl_usd: point.tvl_usd,
-    };
-    let is_new_point = yield_snapshots::insert_snapshot(pool, &snapshot).await?;
+    let new_points = store_points(pool, &village.id, &chart.points).await?;
     villages::mark_fetched(pool, &village.id, Utc::now()).await?;
 
+    let newest = chart.newest();
     tracing::info!(
         village = %village.id,
-        apy_base = %snapshot.apy_base,
-        source_ts = %snapshot.ts,
-        is_new_point,
+        apy_base = %newest.apy_base,
+        source_ts = %newest.ts,
+        new_points,
+        skipped_points = chart.skipped,
         "indexed"
     );
     Ok(())
+}
+
+/// Stores the points of one village and returns how many were new.
+///
+/// Already-stored points are ignored by `insert_snapshot`, so calling this
+/// every round with the full chart (about 45 points) only writes the new ones.
+/// No transaction: each insert is idempotent on its own, so if a round stops
+/// halfway the next round simply stores the rest.
+async fn store_points(pool: &PgPool, village_id: &str, points: &[YieldPoint]) -> Result<usize> {
+    let mut new_points = 0;
+    for point in points {
+        let snapshot = YieldSnapshot {
+            village_id: village_id.to_string(),
+            ts: point.ts,
+            apy_base: point.apy_base,
+            apy_reward: point.apy_reward,
+            tvl_usd: point.tvl_usd,
+        };
+        if yield_snapshots::insert_snapshot(pool, &snapshot).await? {
+            new_points += 1;
+        }
+    }
+    Ok(new_points)
 }
 
 /// The stale rule (D15 + Option A of D19): a village is stale when the indexer
@@ -139,5 +161,44 @@ mod tests {
     #[test]
     fn older_than_the_limit_is_stale() {
         assert!(is_stale(Some(at(7, 59)), at(10, 0), TWO_HOURS));
+    }
+
+    fn point(day: u32, apy_base: &str) -> YieldPoint {
+        YieldPoint {
+            ts: Utc.with_ymd_and_hms(2026, 10, day, 23, 0, 0).unwrap(),
+            apy_base: rust_decimal::Decimal::from_str_exact(apy_base).unwrap(),
+            apy_reward: rust_decimal::Decimal::ZERO,
+            tvl_usd: rust_decimal::Decimal::from(1_000_000),
+        }
+    }
+
+    async fn snapshot_count(pool: &PgPool) -> i64 {
+        sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM yield_snapshots"#)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    #[sqlx::test]
+    async fn storing_a_chart_writes_every_point(pool: PgPool) {
+        let points = [point(1, "13.1"), point(2, "13.4"), point(3, "14.0")];
+
+        let new_points = store_points(&pool, "rhea-lend-usdc", &points).await.unwrap();
+
+        assert_eq!(new_points, 3);
+        assert_eq!(snapshot_count(&pool).await, 3);
+    }
+
+    #[sqlx::test]
+    async fn storing_the_same_chart_again_writes_only_new_points(pool: PgPool) {
+        let first_round = [point(1, "13.1"), point(2, "13.4")];
+        store_points(&pool, "rhea-lend-usdc", &first_round).await.unwrap();
+
+        // Next round: the chart now has one more day at the end.
+        let second_round = [point(1, "13.1"), point(2, "13.4"), point(3, "14.0")];
+        let new_points = store_points(&pool, "rhea-lend-usdc", &second_round).await.unwrap();
+
+        assert_eq!(new_points, 1);
+        assert_eq!(snapshot_count(&pool).await, 3);
     }
 }
