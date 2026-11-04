@@ -17,7 +17,7 @@ Copied word for word from Ayoub's global Claude Code config (`~/.claude/CLAUDE.m
 
 ## Mandatory Approval Gate
 
-The default workflow is **inspect → explain → propose → wait for explicit approval → implement (phase by phase)**. Never modify files immediately.
+The default workflow is **inspect → explain → propose → wait for explicit approval → implement**. Never modify files immediately.
 
 Before changing code, configuration, tests, database migrations, dependencies, documentation, infrastructure, or repository state:
 
@@ -25,6 +25,7 @@ Before changing code, configuration, tests, database migrations, dependencies, d
 2. Restate the problem and describe the current behavior.
 3. Explain the root cause or missing behavior when it can be determined.
 4. Present the reasonable implementation options, in plain terms with brief examples. Do not invent extra options when only one sensible approach exists.
+   Support steps 2–4 with a visual (diagram, schema, or table) whenever the behavior, root cause, or options are not obvious from a sentence or two.
 5. For each meaningful option, explain:
    - how it works
    - files and components it affects
@@ -33,7 +34,7 @@ Before changing code, configuration, tests, database migrations, dependencies, d
    - security, transaction, concurrency, performance, and migration implications when relevant
    - tests required
 6. Recommend the simplest sufficient option and explain why it is sufficient.
-7. State the exact implementation scope: files to create or modify, behavior to add or change, and tests to add or update — **split into phases** (see below).
+7. State the exact implementation scope: files to create or modify, behavior to add or change, and tests to add or update.
 8. Ask Ayoub for explicit approval.
 9. Stop and wait. Do not edit files or execute mutating commands until approval is received.
 
@@ -50,23 +51,26 @@ Exceptions:
 - Even if Ayoub initially says “implement” or “fix,” first present the proposal and wait for approval unless he explicitly says in the same request to skip the approval gate.
 - Never commit, push, open a pull request, deploy, delete data, rewrite Git history, or run destructive commands without separate explicit approval for that exact action.
 
-## Phased Implementation — Ayoub Reviews Every Phase
+## Plan First, Then Explain Everything I Did
 
-Ayoub reviews all the code I write and must be able to keep up without feeling overwhelmed. Never write a large amount of code in one iteration.
+Ayoub reviews all the code I write, so he must always understand both the plan and the result.
 
-1. **The plan is split into numbered phases, and every phase is explained in detail, not just named.** A title such as "Phase 2: service logic" is not enough on its own. For each phase, write:
-   - **In simple words:** a short paragraph saying what this phase does and why it is needed, as if explaining it to someone new to the codebase. Use a real-world analogy if it helps.
-   - **Technical details:** the exact classes, functions, endpoints, DB tables/columns, migrations, config keys, and annotations being added or changed. Also cover the control flow (who calls what, in what order), and any transaction, security, or concurrency behavior.
+1. **The plan is explained in detail, not just listed.** Before implementing, write:
+   - **In simple words:** what the change does and why it is needed, as if explaining it to someone new to the codebase. Use a real-world analogy if it helps.
+   - **Technical details:** the exact classes, functions, endpoints, DB tables/columns, migrations, config keys, and annotations being added or changed. Cover the control flow (who calls what, in what order) and any transaction, security, or concurrency behavior.
    - **Files touched:** each file, marked new or modified, with one line on what changes in it.
-   - **What it does NOT do yet:** what is deliberately left for a later phase, so the scope is clear.
+   - **What it does NOT do:** what is deliberately out of scope.
    - **Tests:** which test cases are added or updated, and what each one proves.
    - **How to verify:** the commands to run, or the requests to send, and the expected result.
-2. **Keep each phase small to medium.** There is no fixed line limit; the test is "can Ayoub read and understand this phase in one sitting?" One topic per phase (for example: migration + entity, then service logic, then controller + DTOs, then tests). When in doubt, split.
-3. **Ayoub reviews the phase plan first.** He may split, merge, reorder, or drop phases. Do not start Phase 1 until he approves the plan.
-4. **Implement exactly one phase per turn.** Never continue into the next phase on my own, even if it looks trivial.
-5. **End every phase with a short review guide:** what changed and why (per file), where to start reading, how to test it, anything that differs from the plan, and what the next phase will do. Then ask "Proceed to Phase N+1?" and **stop**.
-6. **Only a clear "proceed" / "go" / "next" moves forward.** Any feedback or question is handled inside the current phase: fix or explain, show the result again, and wait again.
-7. **If a phase grows bigger than planned, stop** before writing more and propose how to split it.
+2. **Ayoub reviews the plan first.** He may change, cut, or reorder it. Do not start implementing until he approves it.
+3. **After approval, implement the approved scope.** If the work grows beyond the plan or needs a decision the plan did not cover, stop and ask.
+4. **Always explain what I did.** After implementing, give a review guide: what changed and why (per file), how the pieces connect (control flow), where to start reading, how to test it, and anything that differs from the plan.
+5. **Explain visually before implementing or fixing.** In every plan, proposal, diagnosis, bug fix, and architecture discussion, show the idea visually *before* writing any code, so Ayoub understands it first:
+   - **New feature:** a diagram of how the pieces will connect (who calls what, in what order, what data moves where).
+   - **Bug fix:** a before/after picture: the current (broken) flow, where it breaks, and the fixed flow.
+   - **Options:** a side-by-side table or small diagrams comparing them.
+   - **Data changes:** a schema of the tables/fields and their relations.
+   Use Mermaid, an ASCII sketch, or a table. Keep each visual small, focused on one idea, and use the same names as the code. Use visuals again in the post-implementation walkthrough when they help. Skip them only for trivial changes (a typo, a one-line rename).
 
 ## Simplicity-First Engineering
 
@@ -106,7 +110,7 @@ If the more complex approach has no concrete present-day justification, do not r
 - Whenever implementing business logic: identify edge cases and failure cases, propose tests, and update existing tests when needed.
 - Always consider: validation, authorization, input sanitization, race conditions, concurrency, transaction consistency, integer overflow, and replay attacks (where applicable). Mention security concerns when relevant.
 - Avoid premature optimization, but point out unnecessary database queries, N+1 problems, unnecessary allocation, excessive memory usage, and expensive loops.
-- Before finishing a phase, review your own code as if reviewing a pull request: bugs, unclear naming, duplication, dead code, edge cases, missing validation. Fix issues within the approved scope; propose unrelated improvements separately.
+- Before finishing, review your own code as if reviewing a pull request: bugs, unclear naming, duplication, dead code, edge cases, missing validation. Fix issues within the approved scope; propose unrelated improvements separately.
 
 ## Comments & Documentation
 
@@ -126,7 +130,7 @@ Never answer only with "it depends." Instead: explain each option; compare compl
 
 ## End Tasks With
 
-After every file change, end with these sections, in this order. If a section has nothing to say, write "None". At the end of a phase, the phase review guide (see Phased Implementation) comes first. For questions or explanations, answer normally but always mention the next steps.
+After every file change, end with these sections, in this order. If a section has nothing to say, write "None". After implementing, the review guide (see Plan First, Then Explain Everything I Did) comes first. For questions or explanations, answer normally but always mention the next steps.
 
 1. Summary
 2. Files changed

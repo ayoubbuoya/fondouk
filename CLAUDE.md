@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Working rules for the AI
 
-The approval gate, phased implementation, simplicity-first, and end-of-task format all live in a separate file. They apply to every session in this repo:
+The approval gate, plan-then-explain workflow, simplicity-first, and end-of-task format all live in a separate file. They apply to every session in this repo:
 
 @docs/AI_WORKING_RULES.md
 
@@ -56,7 +56,7 @@ Package versions in TECH_architecture §3 are often marked "verify on setup". Us
 Write to the project memory folder **when something happens**, not at session end. Sessions can stop at any time.
 
 - **Decision approved** → save a `project` memory: the decision, the date, why, and the options that were rejected (so they are not proposed again). Also add it to HANDOFF §2.
-- **Phase plan approved** → save a `project` memory with the full phase list. When a phase is finished, update that same memory: mark it done, add the commit hash if one exists, and note anything that differed from the plan.
+- **Plan approved** → save a `project` memory with the plan. When the work is finished, update that same memory: mark it done, add the commit hash if one exists, and note anything that differed from the plan.
 - **Waiting on Ayoub** → save a `project` memory with the open question and the options presented. Delete it once Ayoub answers.
 - **How Ayoub wants me to work** (corrections, preferences) → save a `feedback` memory.
 - Update an existing memory instead of creating a duplicate. Delete memories that are no longer true.
