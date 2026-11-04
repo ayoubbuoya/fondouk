@@ -174,7 +174,7 @@ fondouk/
 
 ### 5.3 sim
 - Ledger in USD terms. Positions per village.
-- Accrual per tick: `value += value * apr/100 * tick_seconds/31_536_000`.
+- Accrual per tick, from APY (D21): `value *= (1 + apy/100) ^ (tick_seconds/31_536_000)`. Implemented in `sim::ledger` (the daily step is used by the backtest).
 - Cost model per move: `pool_fee + slippage(size, tvl) + gas_usd`. Slippage starts as a simple function, for example `size / tvl * k` with `k` tuned so small moves cost little.
 
 ### 5.4 agent

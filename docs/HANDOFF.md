@@ -8,8 +8,8 @@ This file is for anyone joining the project (teammates or a coding agent). Read 
 
 ## 1. Current state
 
-- **Phase:** Day 1 backend done on 4 Nov (about 2 days behind the day plan in section 4). Next: Day 2, history import + backtest engine.
-- **What runs today:** `backend/` (axum + sqlx + Postgres). DefiLlama indexer for the 4 villages (D13, D14), fetching every hour (D19). `GET /health`, `GET /villages` (latest yield + stale flag). 38 tests pass. No frontend or contracts yet.
+- **Phase:** Day 1 and Day 2 backend done on 4 Nov (about 2 days behind the day plan in section 4, no scope cut). Next: Day 3, agent loop (prompt, LLM call, parse, guardrails) + vault spike.
+- **What runs today:** `backend/` (axum + sqlx + Postgres). DefiLlama indexer for the 4 villages (D13, D14), fetching every hour (D19); it stores the full chart, so about 45 days of history are imported (D22). `GET /health`, `GET /villages` (latest yield + stale flag). Tables for users, strategies, avatars and equity. Backtest engine (`backtest::run_for_avatar`) with a mock decision rule (all-in on the best APY) writes 30 `backtest` equity rows; no API triggers it yet. 99 tests pass. No frontend or contracts yet.
 - **Product code started:** 1 Nov 2026 (hackathon start).
 - **Deadline:** 14 Nov 2026, 23:59 UTC. Repo public + demo post on X + one submission.
 - **Team:** Ayoub (lead, full-stack, Rust and contracts), starting solo. Teammates join later.
@@ -82,7 +82,7 @@ Times are rough. P0 first, always.
 | Day | Date | Goal | Done when |
 | --- | --- | --- | --- |
 | 1 | 1 Nov | Repo skeleton, Postgres + migrations, axum hello, indexer for 4 villages | Yield rows stored every hour (D19). **Done 4 Nov** |
-| 2 | 2 Nov | History import + backtest engine (with mock decide) | 30 equity rows for a test avatar |
+| 2 | 2 Nov | History import + backtest engine (with mock decide) | 30 equity rows for a test avatar. **Done 4 Nov** |
 | 3 | 3 Nov | Agent loop: prompt, LLM call, schema parse, guardrails. **Vault spike** (Rhea Lend call flow) | 3 ticks logged for 5 avatars. Spike result written in this file |
 | 4 | 4 Nov | Sim ledger + cost model + tests | Cost and accrual tests pass |
 | 5 | 5 Nov | REST + WebSocket API, wallet auth | Endpoints return real data |
@@ -171,6 +171,7 @@ Environment variables. The first five are used today (see `backend/.env.example`
 | 2 Nov 2026 | Ayoub + Claude | Tools installed. U1, U4, U7 resolved. Decisions D13 to D20 (DefiLlama source, villages, async-openai, LLM provider by env, DB design in `dev-docs/2026-11-02/database-design.md`, fetch interval, stale threshold). Backend skeleton, villages + yield_snapshots storage, DefiLlama indexer. | Finish Day 1 (`GET /villages`) |
 | 3 Nov 2026 | Ayoub | AI working rules copied into the repo (`docs/AI_WORKING_RULES.md`) | Same |
 | 4 Nov 2026 | Ayoub + Claude | `GET /villages` with stale flag. All 38 tests pass (CREATEDB granted). Docs catch-up (stale rule wording, how to run). Day 1 done. | Day 2 plan (history import + backtest); review the cut order (2 days behind) |
+| 4 Nov 2026 | Ayoub + Claude | Day 2 done in 5 phases: full history import (D22), users / avatar_configs / avatars and equity_snapshots tables, daily history query (UTC days), paper ledger with exact APY compounding (D21, D23), SPEC action enum, mock decide, backtest engine (D24). 99 tests pass. SPEC F6.2 and TECH 5.3 now use the APY formula. | Day 3: agent loop + vault spike. Open: how actions treat cash (MOVE from cash?) |
 
 ---
 

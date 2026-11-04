@@ -88,7 +88,7 @@ Priority: **P0** = must ship for demo. **P1** = should ship. **P2** = only if ti
 
 ### F6. Simulation mode (P0)
 - F6.1 Paper balance in USD terms, stored in the database.
-- F6.2 Yield accrues every tick: `position_value += position_value * (apr / 100) * (tick_seconds / 31_536_000)`.
+- F6.2 Yield accrues every tick from the stored APY (HANDOFF D21): `position_value *= (1 + apy / 100) ^ (tick_seconds / 31_536_000)`. One day is `(1 + apy / 100) ^ (1 / 365)`.
 - F6.3 Every move pays costs: swap fee of the pool used, slippage estimate (based on size vs pool TVL), and gas converted to USD. Costs are shown per move.
 - Acceptance: a character that moves often ends with lower equity than one with the same APR exposure that holds, all else equal (unit test).
 
