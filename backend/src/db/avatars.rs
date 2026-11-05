@@ -161,9 +161,12 @@ mod tests {
     /// User + config, ready for avatars.
     async fn setup_config(pool: &PgPool) -> Uuid {
         ensure_user(pool, OWNER).await.unwrap();
-        insert_config(pool, &new_config("Prefer lending, avoid tiny pools.", "low"))
-            .await
-            .unwrap()
+        insert_config(
+            pool,
+            &new_config("Prefer lending, avoid tiny pools.", "low"),
+        )
+        .await
+        .unwrap()
     }
 
     fn is_check_violation(err: &sqlx::Error) -> bool {
@@ -175,7 +178,9 @@ mod tests {
     async fn created_avatar_is_read_back_with_its_config(pool: PgPool) {
         let config_id = setup_config(&pool).await;
 
-        let id = insert_avatar(&pool, &new_avatar(config_id, 10_000)).await.unwrap();
+        let id = insert_avatar(&pool, &new_avatar(config_id, 10_000))
+            .await
+            .unwrap();
         let avatar = get_avatar_with_config(&pool, id).await.unwrap().unwrap();
 
         assert_eq!(avatar.id, id);
@@ -193,7 +198,9 @@ mod tests {
     async fn new_avatar_starts_with_all_capital_in_cash(pool: PgPool) {
         let config_id = setup_config(&pool).await;
 
-        let id = insert_avatar(&pool, &new_avatar(config_id, 10_000)).await.unwrap();
+        let id = insert_avatar(&pool, &new_avatar(config_id, 10_000))
+            .await
+            .unwrap();
         let avatar = get_avatar_with_config(&pool, id).await.unwrap().unwrap();
 
         assert_eq!(avatar.starting_capital_usd, Decimal::from(10_000));
@@ -217,7 +224,9 @@ mod tests {
         ensure_user(&pool, OWNER).await.unwrap();
         let too_long = "a".repeat(2001);
 
-        let err = insert_config(&pool, &new_config(&too_long, "low")).await.unwrap_err();
+        let err = insert_config(&pool, &new_config(&too_long, "low"))
+            .await
+            .unwrap_err();
 
         assert!(is_check_violation(&err), "{err}");
     }
@@ -228,21 +237,27 @@ mod tests {
         // Multi-byte characters: the limit counts characters, not bytes.
         let max = "é".repeat(2000);
 
-        insert_config(&pool, &new_config(&max, "low")).await.unwrap();
+        insert_config(&pool, &new_config(&max, "low"))
+            .await
+            .unwrap();
     }
 
     #[sqlx::test]
     async fn unknown_risk_is_rejected(pool: PgPool) {
         ensure_user(&pool, OWNER).await.unwrap();
 
-        let err = insert_config(&pool, &new_config("x", "yolo")).await.unwrap_err();
+        let err = insert_config(&pool, &new_config("x", "yolo"))
+            .await
+            .unwrap_err();
 
         assert!(is_check_violation(&err), "{err}");
     }
 
     #[sqlx::test]
     async fn config_for_unknown_user_is_rejected(pool: PgPool) {
-        let err = insert_config(&pool, &new_config("x", "low")).await.unwrap_err();
+        let err = insert_config(&pool, &new_config("x", "low"))
+            .await
+            .unwrap_err();
 
         let db_err = err.as_database_error().expect("expected a database error");
         assert!(db_err.is_foreign_key_violation());
@@ -252,7 +267,9 @@ mod tests {
     async fn zero_starting_capital_is_rejected(pool: PgPool) {
         let config_id = setup_config(&pool).await;
 
-        let err = insert_avatar(&pool, &new_avatar(config_id, 0)).await.unwrap_err();
+        let err = insert_avatar(&pool, &new_avatar(config_id, 0))
+            .await
+            .unwrap_err();
 
         assert!(is_check_violation(&err), "{err}");
     }
@@ -260,8 +277,12 @@ mod tests {
     #[sqlx::test]
     async fn a_clone_cannot_be_listed(pool: PgPool) {
         let config_id = setup_config(&pool).await;
-        let source = insert_avatar(&pool, &new_avatar(config_id, 1_000)).await.unwrap();
-        let clone = insert_avatar(&pool, &new_avatar(config_id, 1_000)).await.unwrap();
+        let source = insert_avatar(&pool, &new_avatar(config_id, 1_000))
+            .await
+            .unwrap();
+        let clone = insert_avatar(&pool, &new_avatar(config_id, 1_000))
+            .await
+            .unwrap();
 
         // Clone creation is Day 9, so the row is shaped with raw SQL here.
         let err = sqlx::query!(
