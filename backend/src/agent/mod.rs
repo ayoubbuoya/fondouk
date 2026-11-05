@@ -1,9 +1,11 @@
-//! Agent: what an avatar sees (`MarketState`), what it may answer (`Action`)
-//! and, for now, a mock decision rule.
+//! Agent: what an avatar sees (`MarketState`), what it may answer (`Action`),
+//! the guardrails that check it, and, for now, a mock decision rule.
 //!
 //! "The LLM proposes, code decides": on Day 3 the LLM returns an `Action` as
 //! JSON and Rust guardrails check it. Until then `mock_decide` stands in for
 //! the LLM so the backtest can be built and tested without network or cost.
+
+pub mod guardrails;
 
 use std::collections::BTreeMap;
 
@@ -15,7 +17,7 @@ use serde::{Deserialize, Serialize};
 /// `{"action": "MOVE", "from": "...", "to": "...", "percent": 25, "reason": "..."}`.
 ///
 /// Field limits (`percent` 1..=100, `reason` <= 140 chars, weights summing to
-/// 100 over allowed villages) are checked by the guardrails (Day 3), not by
+/// 100 over allowed villages) are checked by `guardrails::check`, not by
 /// parsing: a parsed action is a *proposal*, not yet an allowed one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "SCREAMING_SNAKE_CASE")]
@@ -45,7 +47,7 @@ pub enum Action {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VillageQuote {
     pub village_id: String,
-    /// `lending` or `stable_lp` (used by the risk guardrails on Day 3).
+    /// `lending` or `stable_lp` (used by the risk guardrails).
     pub kind: String,
     /// Total APY in percent: base + reward.
     pub apy: Decimal,
@@ -180,7 +182,11 @@ mod tests {
 
     #[test]
     fn mock_moves_everything_to_the_highest_apy() {
-        let s = state(vec![quote("a", "8"), quote("b", "14"), quote("c", "11")], "10000", &[]);
+        let s = state(
+            vec![quote("a", "8"), quote("b", "14"), quote("c", "11")],
+            "10000",
+            &[],
+        );
 
         let Action::Rebalance { weights, .. } = mock_decide(&s) else {
             panic!("expected REBALANCE");
@@ -190,14 +196,22 @@ mod tests {
 
     #[test]
     fn mock_holds_when_already_all_in_the_best_village() {
-        let s = state(vec![quote("a", "8"), quote("b", "14")], "0", &[("b", "10000")]);
+        let s = state(
+            vec![quote("a", "8"), quote("b", "14")],
+            "0",
+            &[("b", "10000")],
+        );
 
         assert!(matches!(mock_decide(&s), Action::Hold { .. }));
     }
 
     #[test]
     fn mock_moves_when_part_of_the_money_is_elsewhere() {
-        let s = state(vec![quote("a", "8"), quote("b", "14")], "0", &[("a", "1"), ("b", "9")]);
+        let s = state(
+            vec![quote("a", "8"), quote("b", "14")],
+            "0",
+            &[("a", "1"), ("b", "9")],
+        );
 
         assert!(matches!(mock_decide(&s), Action::Rebalance { .. }));
     }

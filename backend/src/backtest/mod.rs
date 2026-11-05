@@ -8,11 +8,12 @@
 //! - `run_for_avatar` loads the avatar and history from Postgres, calls `run`
 //!   and saves the result in one transaction (D24).
 //!
-//! Each day: build the `MarketState`, ask `decide`, apply the action if it is
-//! allowed (otherwise HOLD), grow positions by one day of yield, record equity.
-//! Costs (Day 4) and guardrails (Day 3) are not applied yet.
+//! Each day: build the `MarketState`, ask `decide`, check the action with the
+//! guardrails (a refused action becomes HOLD), grow positions by one day of
+//! yield, record equity. One day = one tick for the cooldown rule. Costs come
+//! with the Day 4 cost model.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Days, NaiveDate, NaiveTime, Utc};
@@ -20,6 +21,7 @@ use rust_decimal::Decimal;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::agent::guardrails::{self, Risk};
 use crate::agent::{Action, MarketState, VillageQuote, mock_decide};
 use crate::db::equity::{self, EquityPoint};
 use crate::db::{avatars, villages, yield_snapshots};
@@ -40,21 +42,25 @@ pub struct DayQuotes {
 /// returns one equity point per day, timestamped at the **end** of that day
 /// (next UTC midnight).
 ///
-/// An action that cannot be applied becomes HOLD ("the LLM proposes, code
-/// decides"): a REBALANCE into a village without data that day (D23) or with
-/// weights not summing to 100, and MOVE (not supported until Day 3).
+/// Every action goes through `guardrails::check` for `risk` ("the LLM
+/// proposes, code decides"). A refused action becomes HOLD and is logged with
+/// the rule. A village without data that day is not in `villages`, so it
+/// cannot receive money (D23).
 ///
 /// # Errors
 /// `LedgerError::Overflow` if an amount no longer fits a `Decimal`.
 pub fn run(
     days: &[DayQuotes],
     starting_capital: Decimal,
+    risk: Risk,
     mut decide: impl FnMut(&MarketState) -> Action,
 ) -> Result<Vec<EquityPoint>, LedgerError> {
     let mut ledger = Ledger::new(starting_capital);
     let mut points = Vec::with_capacity(days.len());
+    // Index of the day of the last applied MOVE or REBALANCE (cooldown).
+    let mut last_move_day: Option<usize> = None;
 
-    for today in days {
+    for (day_index, today) in days.iter().enumerate() {
         let state = MarketState {
             day: today.day,
             villages: today.villages.clone(),
@@ -62,7 +68,10 @@ pub fn run(
             positions: ledger.positions().clone(),
         };
         let action = decide(&state);
-        apply_action(&mut ledger, &action, today);
+        let ticks_since_last_move = last_move_day.map(|day| (day_index - day) as u32);
+        if apply_action(&mut ledger, &action, &state, risk, ticks_since_last_move) {
+            last_move_day = Some(day_index);
+        }
 
         let apys: BTreeMap<String, Decimal> = today
             .villages
@@ -79,35 +88,37 @@ pub fn run(
     Ok(points)
 }
 
-/// Applies `action` to the ledger, or leaves it unchanged (= HOLD) when the
-/// action is not allowed today. Refusals are logged with the reason.
-fn apply_action(ledger: &mut Ledger, action: &Action, today: &DayQuotes) {
-    match action {
+/// Applies `action` to the ledger if the guardrails allow it; otherwise the
+/// ledger is unchanged (= HOLD) and the refusal is logged with the rule.
+///
+/// Returns `true` when money was moved (MOVE or REBALANCE applied), so the
+/// caller can start the cooldown.
+fn apply_action(
+    ledger: &mut Ledger,
+    action: &Action,
+    state: &MarketState,
+    risk: Risk,
+    ticks_since_last_move: Option<u32>,
+) -> bool {
+    if let Err(rule) = guardrails::check(action, state, risk, ticks_since_last_move) {
+        tracing::warn!(day = %state.day, %rule, "backtest: action refused by guardrails, holding");
+        return false;
+    }
+    let result = match action {
         // SAY never changes positions (SPEC §5).
-        Action::Hold { .. } | Action::Say { .. } => {}
-        Action::Move { .. } => {
-            tracing::warn!(day = %today.day, "backtest: MOVE is not supported yet, holding");
-        }
-        Action::Rebalance { weights, .. } => {
-            let available: BTreeSet<&str> = today
-                .villages
-                .iter()
-                .map(|quote| quote.village_id.as_str())
-                .collect();
-            let unavailable = weights
-                .iter()
-                .find(|(id, weight)| **weight > 0 && !available.contains(id.as_str()));
-            if let Some((village_id, _)) = unavailable {
-                tracing::warn!(
-                    day = %today.day,
-                    village = %village_id,
-                    "backtest: village has no data today and cannot receive funds, holding"
-                );
-                return;
-            }
-            if let Err(err) = ledger.rebalance(weights) {
-                tracing::warn!(day = %today.day, "backtest: rebalance refused ({err}), holding");
-            }
+        Action::Hold { .. } | Action::Say { .. } => return false,
+        Action::Move {
+            from, to, percent, ..
+        } => ledger.move_percent(from, to, *percent),
+        Action::Rebalance { weights, .. } => ledger.rebalance(weights),
+    };
+    match result {
+        Ok(()) => true,
+        Err(err) => {
+            // The guardrails already checked the same limits, so this means
+            // the two disagree: a bug, but holding is still the safe answer.
+            tracing::error!(day = %state.day, "backtest: ledger refused an allowed action ({err}), holding");
+            false
         }
     }
 }
@@ -162,7 +173,8 @@ pub async fn run_for_avatar(
         );
     }
 
-    let points = run(&days, avatar.starting_capital_usd, mock_decide)?;
+    let risk: Risk = avatar.risk.parse().map_err(anyhow::Error::msg)?;
+    let points = run(&days, avatar.starting_capital_usd, risk, mock_decide)?;
     equity::replace_backtest_equity(pool, avatar_id, &points).await?;
 
     tracing::info!(
@@ -257,7 +269,8 @@ mod tests {
 
     /// `value` grown for `days` days at `apy` percent, same formula as the ledger.
     fn grown(value: &str, apy: &str, days: i64) -> Decimal {
-        let daily = (Decimal::ONE + d(apy) / Decimal::ONE_HUNDRED).powd(Decimal::ONE / Decimal::from(365));
+        let daily =
+            (Decimal::ONE + d(apy) / Decimal::ONE_HUNDRED).powd(Decimal::ONE / Decimal::from(365));
         d(value) * daily.powi(days)
     }
 
@@ -266,28 +279,43 @@ mod tests {
     }
 
     fn hold() -> Action {
-        Action::Hold { reason: "test".to_string() }
+        Action::Hold {
+            reason: "test".to_string(),
+        }
     }
 
     #[test]
     fn thirty_days_give_thirty_points_stamped_at_end_of_day() {
         let history = days(30, |_| vec![quote("a", "10")]);
 
-        let points = run(&history, d("10000"), mock_decide).unwrap();
+        let points = run(&history, d("10000"), Risk::High, mock_decide).unwrap();
 
         assert_eq!(points.len(), 30);
-        assert_eq!(points[0].ts, Utc.with_ymd_and_hms(2026, 10, 2, 0, 0, 0).unwrap());
-        assert_eq!(points[29].ts, Utc.with_ymd_and_hms(2026, 10, 31, 0, 0, 0).unwrap());
+        assert_eq!(
+            points[0].ts,
+            Utc.with_ymd_and_hms(2026, 10, 2, 0, 0, 0).unwrap()
+        );
+        assert_eq!(
+            points[29].ts,
+            Utc.with_ymd_and_hms(2026, 10, 31, 0, 0, 0).unwrap()
+        );
     }
 
     #[test]
     fn flat_apy_grows_equity_every_day_by_the_formula() {
         let history = days(30, |_| vec![quote("a", "10")]);
 
-        let points = run(&history, d("10000"), mock_decide).unwrap();
+        let points = run(&history, d("10000"), Risk::High, mock_decide).unwrap();
 
-        assert!(points.windows(2).all(|pair| pair[1].equity_usd > pair[0].equity_usd));
-        assert!(within_a_cent(points[29].equity_usd, grown("10000", "10", 30)));
+        assert!(
+            points
+                .windows(2)
+                .all(|pair| pair[1].equity_usd > pair[0].equity_usd)
+        );
+        assert!(within_a_cent(
+            points[29].equity_usd,
+            grown("10000", "10", 30)
+        ));
     }
 
     #[test]
@@ -298,18 +326,22 @@ mod tests {
             vec![quote("a", "5"), quote("b", b_apy)]
         });
 
-        let points = run(&history, d("10000"), mock_decide).unwrap();
+        let points = run(&history, d("10000"), Risk::High, mock_decide).unwrap();
 
         let after_a = grown("10000", "5", 9);
         let expected = after_a * grown("1", "12", 21);
-        assert!(within_a_cent(points[29].equity_usd, expected), "{}", points[29].equity_usd);
+        assert!(
+            within_a_cent(points[29].equity_usd, expected),
+            "{}",
+            points[29].equity_usd
+        );
     }
 
     #[test]
     fn holding_cash_keeps_equity_flat() {
         let history = days(5, |_| vec![quote("a", "10")]);
 
-        let points = run(&history, d("10000"), |_| hold()).unwrap();
+        let points = run(&history, d("10000"), Risk::High, |_| hold()).unwrap();
 
         assert!(points.iter().all(|p| p.equity_usd == d("10000")));
     }
@@ -322,7 +354,7 @@ mod tests {
             reason: "test".to_string(),
         };
 
-        let points = run(&history, d("10000"), into_ghost).unwrap();
+        let points = run(&history, d("10000"), Risk::High, into_ghost).unwrap();
 
         assert!(points.iter().all(|p| p.equity_usd == d("10000")));
     }
@@ -335,13 +367,14 @@ mod tests {
             reason: "test".to_string(),
         };
 
-        let points = run(&history, d("10000"), bad).unwrap();
+        let points = run(&history, d("10000"), Risk::High, bad).unwrap();
 
         assert!(points.iter().all(|p| p.equity_usd == d("10000")));
     }
 
     #[test]
-    fn move_is_not_applied_yet() {
+    fn move_from_cash_is_refused() {
+        // D27: cash is invested with REBALANCE only.
         let history = days(3, |_| vec![quote("a", "10")]);
         let mover = |_: &MarketState| Action::Move {
             from: "cash".to_string(),
@@ -350,7 +383,78 @@ mod tests {
             reason: "test".to_string(),
         };
 
-        let points = run(&history, d("10000"), mover).unwrap();
+        let points = run(&history, d("10000"), Risk::High, mover).unwrap();
+
+        assert!(points.iter().all(|p| p.equity_usd == d("10000")));
+    }
+
+    #[test]
+    fn move_between_villages_is_applied() {
+        // Day 0: all into "a" (0%). Day 1: move everything to "b" (10%).
+        let history = days(3, |_| vec![quote("a", "0"), quote("b", "10")]);
+        let plan = |state: &MarketState| {
+            if state.positions.is_empty() {
+                Action::Rebalance {
+                    weights: BTreeMap::from([("a".to_string(), 100)]),
+                    reason: "test".to_string(),
+                }
+            } else {
+                Action::Move {
+                    from: "a".to_string(),
+                    to: "b".to_string(),
+                    percent: 100,
+                    reason: "test".to_string(),
+                }
+            }
+        };
+
+        let points = run(&history, d("10000"), Risk::High, plan).unwrap();
+
+        assert_eq!(points[0].equity_usd, d("10000")); // day 0 in "a" at 0%
+        assert!(within_a_cent(points[2].equity_usd, grown("10000", "10", 2)));
+    }
+
+    #[test]
+    fn cooldown_blocks_moves_on_the_following_days() {
+        // Medium risk: 3 ticks (days) between moves. The rule asks to flip
+        // between 60/40 and 40/60 every day (20% moved, under the 50% max
+        // move); only days 0 and 3 may move.
+        let history = days(5, |_| vec![quote("a", "10"), quote("b", "10")]);
+        let mut biggest_each_morning: Vec<Option<String>> = Vec::new();
+        let flip = |state: &MarketState| {
+            let biggest = state
+                .positions
+                .iter()
+                .max_by_key(|(_, value)| **value)
+                .map(|(id, _)| id.clone());
+            let into = if biggest.as_deref() == Some("a") {
+                "b"
+            } else {
+                "a"
+            };
+            let other = if into == "a" { "b" } else { "a" };
+            biggest_each_morning.push(biggest);
+            Action::Rebalance {
+                weights: BTreeMap::from([(into.to_string(), 60), (other.to_string(), 40)]),
+                reason: "test".to_string(),
+            }
+        };
+
+        run(&history, d("10000"), Risk::Medium, flip).unwrap();
+
+        let expected = [None, Some("a"), Some("a"), Some("a"), Some("b")];
+        assert_eq!(
+            biggest_each_morning,
+            expected.map(|id| id.map(str::to_string))
+        );
+    }
+
+    #[test]
+    fn low_risk_refuses_all_in_one_village() {
+        // Max share 60% for low risk: the mock's 100% rebalance is refused.
+        let history = days(3, |_| vec![quote("a", "10")]);
+
+        let points = run(&history, d("10000"), Risk::Low, mock_decide).unwrap();
 
         assert!(points.iter().all(|p| p.equity_usd == d("10000")));
     }
@@ -358,9 +462,15 @@ mod tests {
     #[test]
     fn a_day_without_data_still_has_a_point_and_keeps_growing() {
         // Day 1 has no data at all; money placed on day 0 keeps its 10% (D23).
-        let history = days(3, |i| if i == 1 { vec![] } else { vec![quote("a", "10")] });
+        let history = days(3, |i| {
+            if i == 1 {
+                vec![]
+            } else {
+                vec![quote("a", "10")]
+            }
+        });
 
-        let points = run(&history, d("10000"), mock_decide).unwrap();
+        let points = run(&history, d("10000"), Risk::High, mock_decide).unwrap();
 
         assert_eq!(points.len(), 3);
         assert!(within_a_cent(points[2].equity_usd, grown("10000", "10", 3)));
@@ -371,7 +481,7 @@ mod tests {
         let history = days(2, |_| vec![quote("a", "10")]);
         let mut seen_cash = Vec::new();
 
-        run(&history, d("10000"), |state| {
+        run(&history, d("10000"), Risk::High, |state| {
             seen_cash.push(state.cash_usd);
             mock_decide(state)
         })
@@ -396,7 +506,9 @@ mod tests {
             pool,
             &avatars::NewConfig {
                 persona: "Prefer lending.".to_string(),
-                risk: "low".to_string(),
+                // High risk: the mock goes all-in on one village, which low and
+                // medium risk refuse (max share 60% / 80%).
+                risk: "high".to_string(),
                 goal: "steady_income".to_string(),
                 created_by: owner.to_string(),
             },
@@ -431,7 +543,9 @@ mod tests {
                 apy_reward: Decimal::ZERO,
                 tvl_usd: d("1000000"),
             };
-            yield_snapshots::insert_snapshot(pool, &snapshot).await.unwrap();
+            yield_snapshots::insert_snapshot(pool, &snapshot)
+                .await
+                .unwrap();
         }
     }
 
@@ -444,14 +558,30 @@ mod tests {
 
         run_for_avatar(&pool, avatar, now()).await.unwrap();
 
-        let stored = equity::list_equity(&pool, avatar, "backtest").await.unwrap();
+        let stored = equity::list_equity(&pool, avatar, "backtest")
+            .await
+            .unwrap();
         assert_eq!(stored.len(), 30);
-        assert_eq!(stored[0].ts, Utc.with_ymd_and_hms(2026, 10, 6, 0, 0, 0).unwrap());
-        assert_eq!(stored[29].ts, Utc.with_ymd_and_hms(2026, 11, 4, 0, 0, 0).unwrap());
+        assert_eq!(
+            stored[0].ts,
+            Utc.with_ymd_and_hms(2026, 10, 6, 0, 0, 0).unwrap()
+        );
+        assert_eq!(
+            stored[29].ts,
+            Utc.with_ymd_and_hms(2026, 11, 4, 0, 0, 0).unwrap()
+        );
         // Mock picks the 14% village on day 1 and stays there.
-        assert!(within_a_cent(stored[29].equity_usd, grown("10000", "14", 30)));
+        assert!(within_a_cent(
+            stored[29].equity_usd,
+            grown("10000", "14", 30)
+        ));
         // Nothing is written under another label.
-        assert!(equity::list_equity(&pool, avatar, "sim").await.unwrap().is_empty());
+        assert!(
+            equity::list_equity(&pool, avatar, "sim")
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[sqlx::test]
@@ -462,7 +592,9 @@ mod tests {
         run_for_avatar(&pool, avatar, now()).await.unwrap();
         run_for_avatar(&pool, avatar, now()).await.unwrap();
 
-        let stored = equity::list_equity(&pool, avatar, "backtest").await.unwrap();
+        let stored = equity::list_equity(&pool, avatar, "backtest")
+            .await
+            .unwrap();
         assert_eq!(stored.len(), 30);
     }
 
