@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO llm_cache (cache_key, response) VALUES ($1, $2) ON CONFLICT (cache_key) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0fccf84439bad4b2c5389ac573e5a5e3feda50b21acd81e84bbdfcd03411ffb5"
+}

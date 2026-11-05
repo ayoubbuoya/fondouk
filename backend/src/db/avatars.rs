@@ -132,6 +132,26 @@ pub async fn get_avatar_with_config(
     .await
 }
 
+/// Every active avatar in `mode`, with its strategy, oldest first. Used by
+/// the agent tick loop.
+pub async fn list_active_avatars(pool: &PgPool, mode: &str) -> sqlx::Result<Vec<AvatarWithConfig>> {
+    sqlx::query_as!(
+        AvatarWithConfig,
+        r#"
+        SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,
+               a.active, a.cloned_from, a.listed, a.created_at,
+               c.id AS config_id, c.persona, c.risk, c.goal
+        FROM avatars a
+        JOIN avatar_configs c ON c.id = a.config_id
+        WHERE a.active AND a.mode = $1
+        ORDER BY a.created_at, a.id
+        "#,
+        mode,
+    )
+    .fetch_all(pool)
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

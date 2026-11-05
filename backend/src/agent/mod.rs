@@ -1,11 +1,16 @@
 //! Agent: what an avatar sees (`MarketState`), what it may answer (`Action`),
-//! the guardrails that check it, and, for now, a mock decision rule.
+//! and how a decision is made.
 //!
-//! "The LLM proposes, code decides": on Day 3 the LLM returns an `Action` as
-//! JSON and Rust guardrails check it. Until then `mock_decide` stands in for
-//! the LLM so the backtest can be built and tested without network or cost.
+//! "The LLM proposes, code decides": `decide` asks the LLM for an `Action` as
+//! JSON (`prompt`, `llm`), and `guardrails` checks it in Rust. `tick` runs it
+//! for every live avatar. The backtest still uses `mock_decide` (no network,
+//! no cost) until it is switched to the LLM.
 
+pub mod decide;
 pub mod guardrails;
+pub mod llm;
+pub mod prompt;
+pub mod tick;
 
 use std::collections::BTreeMap;
 

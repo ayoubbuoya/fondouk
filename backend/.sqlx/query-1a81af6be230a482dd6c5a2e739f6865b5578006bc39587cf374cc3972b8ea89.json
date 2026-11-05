@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT response FROM llm_cache WHERE cache_key = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "response",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "llm_cache",
+            "name": "response"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1a81af6be230a482dd6c5a2e739f6865b5578006bc39587cf374cc3972b8ea89"
+}
