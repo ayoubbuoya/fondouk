@@ -166,7 +166,8 @@ fondouk/
 - Mark a village stale if the indexer has not fetched it successfully for `VILLAGE_STALE_AFTER_SECS` (default 2 x the interval = 2 hours, D20). The source itself refreshes about hourly, so the source timestamp is not used for staleness.
 - Broadcast new APRs over WebSocket.
 
-### 5.2 backtest
+### 5.2 backtest (optional, P2, D51)
+- **Optional:** no other module depends on it. Today it runs with the mock decision rule and is not shown in the UI; switching it to the LLM (D35) is on hold. The design below applies if it is finished.
 - Input: character config, list of villages, 30 days of history.
 - For each day: build market state from history, call the same `decide()` function as live, apply guardrails, apply the cost model, accrue yield for one day.
 - Output: 30 rows in `equity_snapshots` with `source = 'backtest'`.
@@ -187,7 +188,7 @@ fondouk/
   5. Run guardrails (`SPEC.md` section 6). On violation, `HOLD` and log the rule.
   6. Apply: sim ledger, or send to executor for real mode.
   7. Log a row in `decisions`, broadcast over WebSocket.
-- `decide()` is a pure function boundary (market state + config in, action out) so backtest and live share it.
+- `decide()` is a pure function boundary (market state + config in, action out) so live and the optional backtest share it.
 
 ### 5.5 executor (real mode)
 - Holds only a **function-call access key** for the vault contract, limited to the operator methods (`agent_supply`, `agent_withdraw`). This key cannot transfer NEAR and cannot call any other contract.
@@ -201,7 +202,7 @@ fondouk/
 REST (built on Day 5 unless marked planned). The browser reaches these paths with an `/api` prefix that the proxy removes (D47):
 - `GET /villages`, `GET /villages/{id}/history?days=7` (1–30)
 - `GET /avatars?owner=`, `GET /avatars/{id}`, `GET /avatars/{id}/decisions?source=&limit=` (newest first, limit ≤ 100), `GET /avatars/{id}/equity?source=` (`source` is required: backtest, sim and real are never mixed)
-- `POST /avatars` (logged in; create + run the backtest, `backtest: null` if it fails, D41; `mode: real` is 400 until Day 10, D42), `PATCH /avatars/{id}` (owner only: name, sprite, active, persona → new config row; no persona edit on clones, D40)
+- `POST /avatars` (logged in; create + run the optional mock backtest, kept for now but not shown in the UI, D51; `backtest: null` if it fails, D41; `mode: real` is 400 until Day 10, D42), `PATCH /avatars/{id}` (owner only: name, sprite, active, persona → new config row; no persona edit on clones, D40)
 - `POST /auth/challenge`, `POST /auth/near` (NEP-413, D38), `POST /auth/logout`, `GET /auth/me`. Session = HttpOnly `SameSite=Lax` cookie, so the frontend must reach the REST API same-origin (Vite proxy in dev, Vercel rewrite in prod, D37).
 - planned: `GET /leaderboard?window=7d|30d&tab=main|new` (Day 11), `GET /arena/feed` (Day 12)
 
@@ -324,7 +325,8 @@ Built on Day 6 (`frontend/`): Vite + React + TypeScript, Phaser 4, `@hot-labs/ne
 | Risk | Impact | Likelihood | Plan |
 | --- | --- | --- | --- |
 | Rhea Lend integration from a contract is complex | Real mode weak | High | Spike on day 3. Fallback: vault deposit and withdraw only. |
-| No free history data | Backtest weak | Medium | Record own snapshots now. Fallback: backtest with fewer days. |
+| No free history data | Backtest weak (backtest is optional, D51) | Low | Record own snapshots now. Fallback: backtest with fewer days. |
+| No backtest, so new characters have no history | Empty 7d/30d leaderboard at demo time | High | Start the demo seed characters live as early as possible (D51, F12.1). |
 | LLM returns bad JSON or random decisions | Messy demo | Medium | Low temperature, schema, retry once, then HOLD. |
 | async-openai custom base URL does not work with NEAR AI Cloud | Delay | Low | Use reqwest directly with the OpenAI chat format. |
 | Scope too big for solo | Unfinished demo | High | P0 first. Social arena and real mode are P1. |

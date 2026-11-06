@@ -9,7 +9,7 @@ Version 0.1, 23 Oct 2026. Target: NEAR HACKATHON (1 to 14 Nov 2026). See `overvi
 ### Goals
 - G1. A user can create an AI DeFi character in under 2 minutes and see it act in a visual town.
 - G2. Characters make decisions from **real, live on-chain APR data** from NEAR protocols.
-- G3. Every character has a visible, honest track record (backtest plus live), with risk metrics, not only returns.
+- G3. Every character has a visible, honest track record (its live history), with risk metrics, not only returns. A backtest is an optional extra (F5, D51), not part of the track record.
 - G4. Users can clone a character by paying its creator **on-chain**, without seeing the strategy text.
 - G5. In real mode, the AI can never send funds out of the vault. Only the owner can withdraw.
 - G6. The demo is understandable in 2 minutes by someone who knows nothing about DeFi.
@@ -44,7 +44,7 @@ Version 0.1, 23 Oct 2026. Target: NEAR HACKATHON (1 to 14 Nov 2026). See `overvi
 | **Persona** | The private instructions written by the creator. Never exposed by any API to anyone except the owner. |
 | **Tick** | One decision round. Every character receives the market state and returns one action. Default: every 10 minutes in live mode. |
 | **Action** | One item from a fixed list (section 5). Free text actions are not allowed. |
-| **Track record** | Equity history from backtest (marked as backtest) plus live history. |
+| **Track record** | Live equity history (`sim` or `real`). A backtest, if one exists, is shown apart and marked as backtest (D51). |
 | **Clone** | A new character for the buyer that uses the same private config as the source, by reference. |
 
 ---
@@ -68,8 +68,8 @@ Priority: **P0** = must ship for demo. **P1** = should ship. **P2** = only if ti
 ### F3. Character creation (P0)
 - F3.1 Form fields: name, sprite (pick from 6 to 10), risk level (low, medium, high), goal (one of: steady income, max yield, protect capital), free-text rules (max 500 characters), starting capital (sim only, fixed options).
 - F3.2 Risk level maps to hard limits in code (section 6). The LLM cannot change them.
-- F3.3 On create, run the backtest (F5) and show the result before the character enters the town.
-- Acceptance: create a character, see its backtest chart and metrics, then see it appear in the town.
+- F3.3 On create, the character goes straight into the town. No backtest is needed (D51); showing one is optional (F5).
+- Acceptance: create a character and see it appear in the town.
 
 ### F4. Agent decision loop (P0)
 - F4.1 Each tick, for each active character: build the market state (all villages, APRs, 24h change, its own positions), send it with the persona to the LLM, get back a JSON action.
@@ -79,12 +79,13 @@ Priority: **P0** = must ship for demo. **P1** = should ship. **P2** = only if ti
 - F4.5 LLM provider: NEAR AI Cloud (OpenAI-compatible). Fallback: any OpenAI-compatible provider via config.
 - Acceptance: run 3 ticks with 5 characters, every decision is logged with input hash, action, validity and reason.
 
-### F5. Backtest (P0)
+### F5. Backtest (P2, optional)
+**Optional (D51):** no other feature depends on the backtest. Build or finish it only if there is time. The engine exists in `backend/src/backtest/` (mock decision rule, not shown in the UI); switching it to the LLM (D35) is on hold.
 - F5.1 Replay the last 30 days of daily (or finer) APR history for the chosen villages.
 - F5.2 Use the same decision function as live mode, but to control LLM cost, run one decision per day of history (30 calls max per character).
 - F5.3 Apply the same cost model as simulation (F6.3).
 - F5.4 Mark all backtest results with a "backtest" label everywhere.
-- Acceptance: a new character has 30 daily equity points labeled backtest.
+- Acceptance (only if built): a new character has 30 daily equity points labeled backtest.
 
 ### F6. Simulation mode (P0)
 - F6.1 Paper balance in USD terms, stored in the database.
@@ -116,7 +117,7 @@ Priority: **P0** = must ship for demo. **P1** = should ship. **P2** = only if ti
 - Acceptance: the arena feed shows messages, none contain persona text (automated check: no 8-word overlap with the persona).
 
 ### F10. Leaderboard (P0)
-- F10.1 Columns: name, owner, mode badge (sim, real, backtest-only), 7d return, 30d return, max drawdown, number of moves, age, clone count, price.
+- F10.1 Columns: name, owner, mode badge (sim, real), 7d return, 30d return, max drawdown, number of moves, age, clone count, price.
 - F10.2 Default sort: 30d return, but characters younger than 7 days of live history are shown in a separate "new" tab.
 - F10.3 Return formula: `equity_end / equity_start - 1` for the window. Drawdown: max peak-to-trough drop of equity in the window.
 - Acceptance: numbers on the leaderboard match a manual calculation from the equity table for 3 sample characters.
@@ -130,7 +131,7 @@ Priority: **P0** = must ship for demo. **P1** = should ship. **P2** = only if ti
 - Acceptance: on testnet, buy a clone, see creator balance increase by 90% of the price, and see the clone appear in the buyer's list.
 
 ### F12. Demo mode (P0)
-- F12.1 A seeded town with 8 to 12 characters of different styles, with backtests already computed.
+- F12.1 A seeded town with 8 to 12 characters of different styles, running live (`sim`) **as early as possible** (as soon as `LLM_*` is set), so they have days of real history by the demo (D51).
 - F12.2 A "Judge tour" button: a 5-step guided overlay (town, character panel, leaderboard, clone flow, vault safety).
 - Acceptance: a fresh visitor can complete the tour without connecting a wallet.
 
