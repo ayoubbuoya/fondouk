@@ -21,10 +21,11 @@
  * × `SCALE`. Art: Ninja Adventure, CC0 (`public/assets/CREDITS.md`).
  */
 
-import { GameObjects, Scene, Textures, Tilemaps, Tweens } from 'phaser'
+import { GameObjects, Input, Scene, Textures, Tilemaps, Tweens } from 'phaser'
 
 import type { AvatarSummary, Village, YieldPoint } from '../lib/api'
 import { formatApy, staleLabel, totalApy } from '../lib/format'
+import { nextZoom } from './cameraZoom'
 import {
   directionOf,
   knownSprite,
@@ -72,6 +73,8 @@ const TEXT_FONT = 'system-ui, sans-serif'
 interface AvatarSprite {
   container: GameObjects.Container
   body: GameObjects.Sprite
+  /** The name tag; kept at the same size on screen at any zoom. */
+  name: GameObjects.Text
   sprite: SpriteId
   /** Where it stands or is going; `null` = arena (all cash). */
   villageId: string | null
@@ -170,8 +173,62 @@ export class TownScene extends Scene {
     this.events.once('destroy', unsubscribe)
 
     this.time.addEvent({ delay: STALE_REFRESH_MS, loop: true, callback: () => this.redrawVillages() })
+    this.setUpCamera()
 
     townBus.emit('town:ready')
+  }
+
+  // ---- camera ----
+
+  /**
+   * Wheel zooms towards the cursor, dragging pans. The bounds stop the
+   * camera at the map edge, so zoom 1 shows exactly the town as before.
+   */
+  private setUpCamera(): void {
+    const camera = this.cameras.main
+    camera.setBounds(0, 0, MAP_PIXELS, MAP_PIXELS)
+
+    this.input.on(
+      'wheel',
+      // Phaser already calls preventDefault on canvas wheel events
+      // (`input.mouse.preventDefaultWheel` defaults to true), so the page does not scroll.
+      (pointer: Input.Pointer, _over: GameObjects.GameObject[], _dx: number, deltaY: number) => {
+        const zoom = nextZoom(camera.zoom, deltaY)
+        if (zoom === camera.zoom) return
+
+        // Keep the world point under the cursor in place: remember it, zoom,
+        // then scroll by however far it moved. `preRender` refreshes the
+        // camera matrix that `getWorldPoint` reads.
+        const before = camera.getWorldPoint(pointer.x, pointer.y)
+        camera.setZoom(zoom)
+        camera.preRender()
+        const after = camera.getWorldPoint(pointer.x, pointer.y)
+        camera.setScroll(camera.scrollX + before.x - after.x, camera.scrollY + before.y - after.y)
+        this.applyLabelScale()
+      },
+    )
+
+    this.input.on('pointermove', (pointer: Input.Pointer) => {
+      if (!pointer.isDown) return
+      // Pointer moves are in screen pixels; divide by zoom to get world pixels.
+      camera.setScroll(
+        camera.scrollX - (pointer.x - pointer.prevPosition.x) / camera.zoom,
+        camera.scrollY - (pointer.y - pointer.prevPosition.y) / camera.zoom,
+      )
+    })
+  }
+
+  /**
+   * Zooming scales everything, so name tags would overlap just as much as
+   * before. Drawing them at 1/zoom keeps them the same size on screen while
+   * the gaps between characters grow, so a crowd spreads out (and the text
+   * stays sharp: its net scale is 1).
+   */
+  private applyLabelScale(): void {
+    const scale = 1 / this.cameras.main.zoom
+    for (const avatar of this.avatars.values()) {
+      avatar.name.setScale(scale)
+    }
   }
 
   /** One looping walk animation per character and direction (8 × 4). */
@@ -345,6 +402,7 @@ export class TownScene extends Scene {
         strokeThickness: 3,
       })
       .setOrigin(0.5, 1)
+      .setScale(1 / this.cameras.main.zoom) // match the others if added while zoomed
     // New sprites start in the arena; the first layout puts them on their
     // spot without walking (see `relayoutAvatars`).
     const container = this.add.container(CENTER.x, CENTER.y, [body, name])
@@ -352,7 +410,7 @@ export class TownScene extends Scene {
       .setSize(TILE_SIZE * TILE_SCALE, TILE_SIZE * TILE_SCALE)
       .setInteractive({ useHandCursor: true })
       .on('pointerdown', () => townBus.emit('avatar:selected', avatar.id))
-    return { container, body, sprite, villageId: avatar.main_village, target: { ...CENTER } }
+    return { container, body, name, sprite, villageId: avatar.main_village, target: { ...CENTER } }
   }
 
   /**
