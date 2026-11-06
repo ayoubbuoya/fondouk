@@ -1,4 +1,4 @@
-//! Backtest: replay the last 30 days of real yield history with an avatar's
+//! Backtest: replay the last 7 days of real yield history with an avatar's
 //! decision rule and store the resulting equity curve, labeled `backtest`
 //! (SPEC F5, TECH §5.2).
 //!
@@ -28,8 +28,9 @@ use crate::db::villages::Village;
 use crate::db::{avatars, villages, yield_snapshots};
 use crate::sim::ledger::{Ledger, LedgerError};
 
-/// Length of the backtest window (SPEC F5.1, D5).
-pub const BACKTEST_DAYS: u64 = 30;
+/// Length of the backtest window (SPEC F5.1, D60). Kept short because each
+/// day is one `decide()` call, which costs AI tokens once the LLM is used.
+pub const BACKTEST_DAYS: u64 = 7;
 
 /// The villages that have data on one UTC day.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,13 +136,13 @@ fn start_of_day(day: NaiveDate) -> DateTime<Utc> {
 /// Still uses the mock decision rule; switching to the LLM is its own plan
 /// after Day 4 (HANDOFF D35). Starts from the
 /// avatar's `starting_capital_usd` (the backtest is a "what if you had started
-/// 30 days ago", not its current cash). `now` is a parameter so tests are
+/// 7 days ago", not its current cash). `now` is a parameter so tests are
 /// deterministic.
 ///
 /// The replay starts at the first day that has data for any village, and then
 /// covers every calendar day up to yesterday: a day without any data still
 /// gets an equity point (money grows at the last known APY, D23). With less
-/// than 30 days of history it runs the days it has and logs a warning.
+/// than 7 days of history it runs the days it has and logs a warning.
 ///
 /// Returns the stored points.
 ///
@@ -295,25 +296,25 @@ mod tests {
     }
 
     #[test]
-    fn thirty_days_give_thirty_points_stamped_at_end_of_day() {
-        let history = days(30, |_| vec![quote("a", "10")]);
+    fn seven_days_give_seven_points_stamped_at_end_of_day() {
+        let history = days(7, |_| vec![quote("a", "10")]);
 
         let points = run(&history, d("10000"), Risk::High, mock_decide).unwrap();
 
-        assert_eq!(points.len(), 30);
+        assert_eq!(points.len(), 7);
         assert_eq!(
             points[0].ts,
             Utc.with_ymd_and_hms(2026, 10, 2, 0, 0, 0).unwrap()
         );
         assert_eq!(
-            points[29].ts,
-            Utc.with_ymd_and_hms(2026, 10, 31, 0, 0, 0).unwrap()
+            points[6].ts,
+            Utc.with_ymd_and_hms(2026, 10, 8, 0, 0, 0).unwrap()
         );
     }
 
     #[test]
     fn flat_apy_grows_equity_every_day_by_the_formula() {
-        let history = days(30, |_| vec![quote("a", "10")]);
+        let history = days(7, |_| vec![quote("a", "10")]);
 
         let points = run(&history, d("10000"), Risk::High, mock_decide).unwrap();
 
@@ -324,28 +325,28 @@ mod tests {
         );
         // Day 0 invests the cash, paying one entry of gas.
         assert!(within_a_cent(
-            points[29].equity_usd,
-            grown(invested(), "10", 30)
+            points[6].equity_usd,
+            grown(invested(), "10", 7)
         ));
     }
 
     #[test]
     fn mock_follows_the_best_village_when_it_changes() {
-        // Days 0-8: "a" pays 5%, "b" 3%. From day 9: "b" pays 12%.
-        let history = days(30, |i| {
-            let b_apy = if i < 9 { "3" } else { "12" };
+        // Days 0-2: "a" pays 5%, "b" 3%. From day 3: "b" pays 12%.
+        let history = days(7, |i| {
+            let b_apy = if i < 3 { "3" } else { "12" };
             vec![quote("a", "5"), quote("b", b_apy)]
         });
 
         let points = run(&history, d("10000"), Risk::High, mock_decide).unwrap();
 
-        // Into "a" on day 0 (one entry), then a to b on day 9 (exit + entry).
-        let after_a = grown(invested(), "5", 9) - gas() - gas();
-        let expected = grown(after_a, "12", 21);
+        // Into "a" on day 0 (one entry), then a to b on day 3 (exit + entry).
+        let after_a = grown(invested(), "5", 3) - gas() - gas();
+        let expected = grown(after_a, "12", 4);
         assert!(
-            within_a_cent(points[29].equity_usd, expected),
+            within_a_cent(points[6].equity_usd, expected),
             "{}",
-            points[29].equity_usd
+            points[6].equity_usd
         );
     }
 
@@ -512,7 +513,7 @@ mod tests {
     // ---- database tests (run_for_avatar) ----
 
     /// "Now" for the DB tests: 4 Nov 2026 at 15:00 UTC, so the window is the
-    /// 30 complete days 5 Oct .. 3 Nov.
+    /// 7 complete days 28 Oct .. 3 Nov.
     fn now() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 11, 4, 15, 0, 0).unwrap()
     }
@@ -567,9 +568,9 @@ mod tests {
         }
     }
 
-    /// Day 2 acceptance (HANDOFF §4): a test avatar ends with 30 backtest rows.
+    /// Day 2 acceptance (HANDOFF §4, D60): a test avatar ends with 7 backtest rows.
     #[sqlx::test]
-    async fn backtest_stores_thirty_equity_rows_for_a_test_avatar(pool: PgPool) {
+    async fn backtest_stores_seven_equity_rows_for_a_test_avatar(pool: PgPool) {
         let avatar = create_avatar(&pool).await;
         seed_history(&pool, "rhea-lend-usdc", "14", 40).await;
         seed_history(&pool, "rhea-lend-usdt", "12", 40).await;
@@ -579,20 +580,22 @@ mod tests {
         let stored = equity::list_equity(&pool, avatar, "backtest")
             .await
             .unwrap();
-        assert_eq!(stored.len(), 30);
+        // Follows the constant, so changing the window needs no test edit.
+        assert_eq!(stored.len(), BACKTEST_DAYS as usize);
+        assert_eq!(stored.len(), 7);
         assert_eq!(
             stored[0].ts,
-            Utc.with_ymd_and_hms(2026, 10, 6, 0, 0, 0).unwrap()
+            Utc.with_ymd_and_hms(2026, 10, 29, 0, 0, 0).unwrap()
         );
         assert_eq!(
-            stored[29].ts,
+            stored[6].ts,
             Utc.with_ymd_and_hms(2026, 11, 4, 0, 0, 0).unwrap()
         );
         // Mock picks the 14% village (USDC lending, no swap) on day 1 and
         // stays there: one entry of gas.
         assert!(within_a_cent(
-            stored[29].equity_usd,
-            grown(invested(), "14", 30)
+            stored[6].equity_usd,
+            grown(invested(), "14", 7)
         ));
         // Nothing is written under another label.
         assert!(
@@ -614,17 +617,17 @@ mod tests {
         let stored = equity::list_equity(&pool, avatar, "backtest")
             .await
             .unwrap();
-        assert_eq!(stored.len(), 30);
+        assert_eq!(stored.len(), 7);
     }
 
     #[sqlx::test]
     async fn short_history_gives_a_shorter_backtest(pool: PgPool) {
         let avatar = create_avatar(&pool).await;
-        seed_history(&pool, "rhea-lend-usdc", "14", 10).await;
+        seed_history(&pool, "rhea-lend-usdc", "14", 3).await;
 
         let points = run_for_avatar(&pool, avatar, now()).await.unwrap();
 
-        assert_eq!(points.len(), 10);
+        assert_eq!(points.len(), 3);
     }
 
     #[sqlx::test]

@@ -81,11 +81,11 @@ Priority: **P0** = must ship for demo. **P1** = should ship. **P2** = only if ti
 
 ### F5. Backtest (P2, optional)
 **Optional (D51):** no other feature depends on the backtest. Build or finish it only if there is time. The engine exists in `backend/src/backtest/` (mock decision rule, not shown in the UI); switching it to the LLM (D35) is on hold.
-- F5.1 Replay the last 30 days of daily (or finer) APR history for the chosen villages.
-- F5.2 Use the same decision function as live mode, but to control LLM cost, run one decision per day of history (30 calls max per character).
+- F5.1 Replay the last 7 days of daily (or finer) APR history for the chosen villages.
+- F5.2 Use the same decision function as live mode, but to control LLM cost, run one decision per day of history (7 calls max per character, D60).
 - F5.3 Apply the same cost model as simulation (F6.3).
 - F5.4 Mark all backtest results with a "backtest" label everywhere.
-- Acceptance (only if built): a new character has 30 daily equity points labeled backtest.
+- Acceptance (only if built): a new character has 7 daily equity points labeled backtest.
 
 ### F6. Simulation mode (P0)
 - F6.1 Paper balance in USD terms, stored in the database.

@@ -237,7 +237,7 @@ pub async fn list_equity(
 }
 
 /// `POST /avatars`: creates the strategy and the avatar in one transaction,
-/// then runs the 30-day backtest (F3.3) before answering.
+/// then runs the 7-day backtest (F3.3) before answering.
 ///
 /// The backtest runs after the commit: it reads the avatar back through the
 /// pool. If it fails (e.g. no history yet), the avatar is kept and
@@ -660,11 +660,11 @@ mod tests {
         assert_eq!(body["avatar"]["cash_usd"], "10000");
         assert_eq!(body["avatar"]["persona"], PERSONA, "creator sees it");
         let backtest = body["backtest"].as_array().unwrap();
-        assert_eq!(backtest.len(), 10, "one point per day of history");
+        assert_eq!(backtest.len(), 7, "one point per day of the 7-day window");
 
         let id: Uuid = body["avatar"]["id"].as_str().unwrap().parse().unwrap();
         let stored = equity::list_equity(&pool, id, "backtest").await.unwrap();
-        assert_eq!(stored.len(), 10);
+        assert_eq!(stored.len(), 7);
     }
 
     #[sqlx::test]
@@ -848,7 +848,7 @@ mod tests {
         )
         .await;
         assert_eq!(sim.as_array().unwrap().len(), 1);
-        assert_eq!(backtest.as_array().unwrap().len(), 10);
+        assert_eq!(backtest.as_array().unwrap().len(), 7);
 
         let decisions_uri = format!("/avatars/{id}/decisions");
         assert_eq!(

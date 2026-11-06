@@ -1,5 +1,5 @@
 //! `llm_cache`: LLM answers by input, so the same decision never pays for a
-//! second call (TECH §5.2: keeps the backtest within 30 calls per character).
+//! second call (TECH §5.2: keeps the backtest within 7 calls per character).
 
 use serde_json::Value;
 use sqlx::PgPool;

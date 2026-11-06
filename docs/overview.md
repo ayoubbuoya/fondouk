@@ -87,7 +87,7 @@ Fondouk turns yield strategies into living characters in a town.
 
 1. Connect a NEAR wallet.
 2. Create a character: name, look, risk level, goals, rules.
-3. Fondouk runs a **30-day backtest** on real historical APR data, so the character has a track record from minute one.
+3. Fondouk runs a **7-day backtest** on real historical APR data, so the character has a track record from minute one.
 4. Choose a mode:
    - **Simulation**: paper money, live real data, costs (fees, slippage, gas) included.
    - **Real**: deposit into the Fondouk vault. The agent can only move funds between whitelisted pools within limits. Only the owner can withdraw.

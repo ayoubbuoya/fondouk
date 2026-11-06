@@ -109,7 +109,7 @@ Versions below were checked on 23 Oct 2026. "Latest found" means the newest vers
 | Source | Use | Status |
 | --- | --- | --- |
 | Rhea contracts (view calls) | Optional later: fresher lending APR via `contract.main.burrow.near` `get_asset` | Verified 2 Nov (HANDOFF U4). Not used by the indexer for MVP (decision D13). |
-| DefiLlama yields (`yields.llama.fi/pools`, `yields.llama.fi/chart/{pool}`) | Live snapshots **and** 30-day history for backtest (D13) | Free, no key (verified 2 Nov). Values are APY. Refreshed about hourly. |
+| DefiLlama yields (`yields.llama.fi/pools`, `yields.llama.fi/chart/{pool}`) | Live snapshots **and** history for the 7-day backtest (D13, D60) | Free, no key (verified 2 Nov). Values are APY. Refreshed about hourly. |
 | Own snapshots | Fallback history | Start recording before 1 Nov if possible, so we own a few weeks of data. |
 
 ### Hosting
@@ -168,10 +168,10 @@ fondouk/
 
 ### 5.2 backtest (optional, P2, D51)
 - **Optional:** no other module depends on it. Today it runs with the mock decision rule and is not shown in the UI; switching it to the LLM (D35) is on hold. The design below applies if it is finished.
-- Input: character config, list of villages, 30 days of history.
+- Input: character config, list of villages, 7 days of history (D60).
 - For each day: build market state from history, call the same `decide()` function as live, apply guardrails, apply the cost model, accrue yield for one day.
-- Output: 30 rows in `equity_snapshots` with `source = 'backtest'`.
-- LLM budget: max 30 calls per character. Cache by (persona hash, market state hash).
+- Output: 7 rows in `equity_snapshots` with `source = 'backtest'`.
+- LLM budget: max 7 calls per character. Cache by (persona hash, market state hash).
 
 ### 5.3 sim
 - Ledger in USD terms. Positions per village.
