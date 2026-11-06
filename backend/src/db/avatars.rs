@@ -131,6 +131,48 @@ pub async fn insert_avatar<'e>(
     .await
 }
 
+/// Input for a clone of a listed character (F11.3, F11.4).
+#[derive(Debug, Clone)]
+pub struct NewClone {
+    pub owner: String,
+    /// The character that was bought. The clone points to its strategy row
+    /// (`config_id`) and never copies the persona text.
+    pub source_id: Uuid,
+    pub config_id: Uuid,
+    pub name: String,
+    pub sprite: String,
+    pub starting_capital_usd: Decimal,
+}
+
+/// Stores a clone: a sim character with all its capital in cash, pointing to
+/// the source's strategy. `listed` stays `false` (F11.5: a clone cannot be
+/// re-listed; the table CHECK repeats it).
+///
+/// # Errors
+/// Foreign key violation for an unknown owner, source or config; CHECK
+/// violation for a name outside 1..=32 characters or capital <= 0.
+pub async fn insert_clone<'e>(
+    executor: impl PgExecutor<'e>,
+    clone: &NewClone,
+) -> sqlx::Result<Uuid> {
+    sqlx::query_scalar!(
+        r#"
+        INSERT INTO avatars
+            (owner, config_id, name, sprite, mode, starting_capital_usd, cash_usd, cloned_from)
+        VALUES ($1, $2, $3, $4, 'sim', $5, $5, $6)
+        RETURNING id
+        "#,
+        clone.owner,
+        clone.config_id,
+        clone.name,
+        clone.sprite,
+        clone.starting_capital_usd,
+        clone.source_id,
+    )
+    .fetch_one(executor)
+    .await
+}
+
 /// Sets the avatar's cash (live sim, after a tick changed its ledger).
 ///
 /// Takes any executor, so the live tick can run it inside its transaction.

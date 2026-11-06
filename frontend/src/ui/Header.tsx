@@ -6,11 +6,16 @@ import { currentAccount, login, logout } from '../lib/wallet'
 /** `undefined` = still asking the backend; `null` = nobody logged in. */
 type Account = string | null | undefined
 
+interface HeaderProps {
+  onOpenMarketplace: () => void
+}
+
 /**
- * Top bar: title, data source note (F2 acceptance) and the wallet button.
- * On load it asks `GET /auth/me`, so a page reload keeps the login (F1).
+ * Top bar: title, data source note (F2 acceptance), the Marketplace button and
+ * the wallet button. On load it asks `GET /auth/me`, so a page reload keeps the
+ * login (F1).
  */
-export function Header() {
+export function Header({ onOpenMarketplace }: HeaderProps) {
   const [account, setAccount] = useState<Account>(undefined)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -47,6 +52,9 @@ export function Header() {
         <span className="header-note">Yield data from DefiLlama, updated hourly</span>
       </div>
       <div className="header-wallet">
+        <button type="button" onClick={onOpenMarketplace}>
+          Marketplace
+        </button>
         {error && <span className="header-error">{error}</span>}
         {account === undefined ? null : account === null ? (
           <button type="button" onClick={onLogin} disabled={busy}>

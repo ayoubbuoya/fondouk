@@ -47,6 +47,91 @@ pub async fn is_full_access_key(
     Ok(answer["result"]["permission"] == "FullAccess")
 }
 
+/// Fetches a transaction with all its receipts (RPC `tx`), waiting until it is
+/// final. Used to verify a marketplace purchase (Day 9, option C).
+///
+/// Returns `Ok(None)` when the RPC does not know the transaction (wrong hash,
+/// wrong sender, or a node that has not seen it yet).
+///
+/// # Errors
+/// Network failure, or an answer that is not JSON.
+pub async fn fetch_transaction(
+    http: &reqwest::Client,
+    rpc_url: &str,
+    tx_hash: &str,
+    sender_account_id: &str,
+) -> Result<Option<Value>> {
+    let answer = rpc_call(
+        http,
+        rpc_url,
+        "tx",
+        json!({
+            "tx_hash": tx_hash,
+            "sender_account_id": sender_account_id,
+            "wait_until": "FINAL",
+        }),
+    )
+    .await?;
+    Ok(answer.get("result").cloned())
+}
+
+/// Calls a read-only contract method (RPC `query` / `call_function`) and
+/// returns its JSON answer.
+///
+/// # Errors
+/// Network failure, a contract error, or an answer that is not JSON.
+pub async fn view_function(
+    http: &reqwest::Client,
+    rpc_url: &str,
+    contract_id: &str,
+    method_name: &str,
+    args: &Value,
+) -> Result<Value> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+
+    let answer = rpc_call(
+        http,
+        rpc_url,
+        "query",
+        json!({
+            "request_type": "call_function",
+            "finality": "final",
+            "account_id": contract_id,
+            "method_name": method_name,
+            "args_base64": STANDARD.encode(args.to_string()),
+        }),
+    )
+    .await?;
+    // The RPC answers a contract failure as `result.error` (or a top-level `error`).
+    let bytes = answer["result"]["result"]
+        .as_array()
+        .with_context(|| format!("view call {method_name} on {contract_id} failed: {answer}"))?;
+    // `result.result` is the method's return value as a list of bytes (JSON text).
+    let bytes: Vec<u8> = bytes
+        .iter()
+        .filter_map(|b| b.as_u64().and_then(|n| u8::try_from(n).ok()))
+        .collect();
+    serde_json::from_slice(&bytes).context("view call result is not JSON")
+}
+
+/// One JSON-RPC request; returns the whole answer object.
+async fn rpc_call(
+    http: &reqwest::Client,
+    rpc_url: &str,
+    method: &str,
+    params: Value,
+) -> Result<Value> {
+    let request = json!({ "jsonrpc": "2.0", "id": "fondouk", "method": method, "params": params });
+    http.post(rpc_url)
+        .json(&request)
+        .send()
+        .await
+        .with_context(|| format!("NEAR RPC request to {rpc_url} failed"))?
+        .json()
+        .await
+        .context("NEAR RPC answer is not JSON")
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;

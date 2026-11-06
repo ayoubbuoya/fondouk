@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { actionLabel, formatApy, formatUsd, staleLabel, totalApy } from './format'
+import { actionLabel, formatApy, formatNear, formatUsd, staleLabel, totalApy } from './format'
 
 describe('totalApy', () => {
   it('adds base and reward APY from decimal strings', () => {
@@ -62,6 +62,26 @@ describe('formatUsd', () => {
     expect(formatUsd(undefined)).toBe('–')
     expect(formatUsd('')).toBe('–')
     expect(formatUsd('abc')).toBe('–')
+  })
+})
+
+describe('formatNear', () => {
+  it('converts yoctoNEAR to NEAR without float rounding', () => {
+    expect(formatNear('100000000000000000000000')).toBe('0.1 NEAR')
+    expect(formatNear('1000000000000000000000000')).toBe('1 NEAR')
+    expect(formatNear('2500000000000000000000000')).toBe('2.5 NEAR')
+    expect(formatNear('123456789000000000000000000')).toBe('123.4567 NEAR')
+  })
+
+  it('cuts tiny prices instead of rounding them up', () => {
+    expect(formatNear('1')).toBe('0 NEAR')
+    expect(formatNear('99999999999999999999999')).toBe('0.0999 NEAR')
+  })
+
+  it('shows a dash for anything that is not a whole number', () => {
+    expect(formatNear('')).toBe('–')
+    expect(formatNear('1.5')).toBe('–')
+    expect(formatNear('-3')).toBe('–')
   })
 })
 

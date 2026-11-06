@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO avatars\n            (owner, config_id, name, sprite, mode, starting_capital_usd, cash_usd, cloned_from)\n        VALUES ($1, $2, $3, $4, 'sim', $5, $5, $6)\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text",
+        "Text",
+        "Numeric",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f5871c4a841d3ad095627f304a409ee405107dbe759c8d2b26ae2ba042b8b762"
+}

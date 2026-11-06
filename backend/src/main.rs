@@ -87,6 +87,7 @@ async fn main() -> Result<()> {
         events,
         http,
         near_rpc_url: config.near_rpc_url.clone(),
+        marketplace_contract_id: config.marketplace_contract_id.clone(),
     };
     axum::serve(listener, api::router(app_state))
         .with_graceful_shutdown(async move { indexer::stop_requested(&mut server_shutdown).await })

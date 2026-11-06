@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT clone_avatar_id FROM processed_purchases WHERE tx_hash = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "clone_avatar_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "processed_purchases",
+            "name": "clone_avatar_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6d1f00fd9db7cf7be9789ea387be3480a4afe6f82d2cdd33e3926d44e2f65fbf"
+}

@@ -30,6 +30,10 @@ const MIN_AGENT_TICK_SECS: u64 = 60;
 /// there, so users log in with testnet accounts.
 const DEFAULT_NEAR_RPC_URL: &str = "https://test.rpc.fastnear.com";
 
+/// Marketplace contract used when `MARKETPLACE_CONTRACT_ID` is unset: the one
+/// deployed on testnet on Day 8 (D57).
+const DEFAULT_MARKETPLACE_CONTRACT_ID: &str = "marketplace.fondouk.testnet";
+
 /// Where the LLM lives (D17). `Debug` is written by hand so the API key is
 /// never printed.
 #[derive(Clone, PartialEq, Eq)]
@@ -77,6 +81,9 @@ pub struct Config {
     /// NEAR JSON-RPC endpoint (`NEAR_RPC_URL`). Login uses it to check that
     /// the signing key belongs to the account (D38).
     pub near_rpc_url: String,
+    /// Marketplace contract account (`MARKETPLACE_CONTRACT_ID`). Only events
+    /// emitted by this account count as a clone purchase (F11.3).
+    pub marketplace_contract_id: String,
 }
 
 impl Config {
@@ -102,6 +109,9 @@ impl Config {
             )?,
             agent_tick_interval: parse_agent_tick(std::env::var("AGENT_TICK_SECS").ok())?,
             near_rpc_url: parse_near_rpc_url(std::env::var("NEAR_RPC_URL").ok())?,
+            marketplace_contract_id: parse_marketplace_contract_id(
+                std::env::var("MARKETPLACE_CONTRACT_ID").ok(),
+            ),
         })
     }
 }
@@ -116,6 +126,7 @@ impl std::fmt::Debug for Config {
             .field("llm", &self.llm)
             .field("agent_tick_interval", &self.agent_tick_interval)
             .field("near_rpc_url", &self.near_rpc_url)
+            .field("marketplace_contract_id", &self.marketplace_contract_id)
             .finish()
     }
 }
@@ -243,9 +254,34 @@ fn parse_near_rpc_url(value: Option<String>) -> Result<String> {
     Ok(raw)
 }
 
+/// Parses `MARKETPLACE_CONTRACT_ID`, falling back to the testnet deployment.
+/// A blank value counts as unset.
+fn parse_marketplace_contract_id(value: Option<String>) -> String {
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| DEFAULT_MARKETPLACE_CONTRACT_ID.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn marketplace_contract_defaults_to_the_testnet_deployment() {
+        assert_eq!(
+            parse_marketplace_contract_id(None),
+            DEFAULT_MARKETPLACE_CONTRACT_ID
+        );
+        assert_eq!(
+            parse_marketplace_contract_id(Some("  ".to_string())),
+            DEFAULT_MARKETPLACE_CONTRACT_ID
+        );
+        assert_eq!(
+            parse_marketplace_contract_id(Some(" other.testnet ".to_string())),
+            "other.testnet"
+        );
+    }
 
     #[test]
     fn near_rpc_url_defaults_to_testnet_and_rejects_non_http() {
@@ -296,6 +332,7 @@ mod tests {
             }),
             agent_tick_interval: Duration::from_secs(600),
             near_rpc_url: DEFAULT_NEAR_RPC_URL.to_string(),
+            marketplace_contract_id: DEFAULT_MARKETPLACE_CONTRACT_ID.to_string(),
         };
 
         let printed = format!("{config:?}");

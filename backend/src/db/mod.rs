@@ -7,6 +7,7 @@ pub mod decisions;
 pub mod equity;
 pub mod llm_cache;
 pub mod positions;
+pub mod purchases;
 pub mod villages;
 pub mod yield_snapshots;
 

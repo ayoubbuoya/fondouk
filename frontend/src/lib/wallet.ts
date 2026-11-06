@@ -72,7 +72,45 @@ export async function logout(): Promise<void> {
   if (connected) await nearConnector.disconnect(connected.wallet)
 }
 
-type SignParams = { message: string; recipient: string; nonce: Uint8Array }
+/** The marketplace contract the Buy button pays (must match the backend's `MARKETPLACE_CONTRACT_ID`). */
+const MARKETPLACE_CONTRACT_ID =
+  import.meta.env.VITE_MARKETPLACE_CONTRACT_ID ?? 'marketplace.fondouk.testnet'
+
+/** 30 TGas: far more than `buy_clone` needs (it only emits an event and makes 2 transfers). */
+const BUY_CLONE_GAS = '30000000000000'
+
+/**
+ * Pays for a clone: the wallet signs `buy_clone` with the price attached. The
+ * contract splits it 90% / 10% and emits the event (F11.2).
+ *
+ * Resolves with the transaction hash. Rejects when there is no connected
+ * wallet, or the user closes the wallet popup.
+ */
+export async function buyClone(avatarId: string, priceYocto: string): Promise<string> {
+  const connected = await getConnector()
+    .getConnectedWallet()
+    .catch(() => null)
+  if (!connected) throw new Error('No wallet connected: log in again')
+
+  const outcome = await connected.wallet.signAndSendTransaction({
+    network,
+    receiverId: MARKETPLACE_CONTRACT_ID,
+    actions: [
+      {
+        type: 'FunctionCall',
+        params: {
+          methodName: 'buy_clone',
+          args: { avatar_id: avatarId },
+          gas: BUY_CLONE_GAS,
+          deposit: priceYocto,
+        },
+      },
+    ],
+  })
+  return outcome.transaction_outcome.id
+}
+
+type SignParams ={ message: string; recipient: string; nonce: Uint8Array }
 
 /** Gets a NEP-413 signature, reusing an already connected wallet if any. */
 async function signWithWallet(params: SignParams): Promise<SignedMessage> {

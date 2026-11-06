@@ -50,6 +50,21 @@ export function formatUsd(value: string | null | undefined): string {
   return Number.isFinite(amount) ? usd.format(amount) : '–'
 }
 
+const YOCTO_PER_NEAR = 10n ** 24n
+
+/**
+ * `"100000000000000000000000"` (yoctoNEAR) -> `"0.1 NEAR"`. Up to 4 decimals,
+ * cut (not rounded) so the label never shows more than the real price.
+ * BigInt keeps all digits: a price does not fit a JS number. Broken input -> `"–"`.
+ */
+export function formatNear(yocto: string): string {
+  if (!/^\d+$/.test(yocto)) return '–'
+  const value = BigInt(yocto)
+  const whole = value / YOCTO_PER_NEAR
+  const fraction = (value % YOCTO_PER_NEAR).toString().padStart(24, '0').slice(0, 4).replace(/0+$/, '')
+  return `${whole}${fraction === '' ? '' : `.${fraction}`} NEAR`
+}
+
 /**
  * A short, public label for one applied action (SPEC §5), e.g.
  * `"MOVE 40% rhea-lend-usdc → rhea-dex-stable4"`. The action's own `reason`

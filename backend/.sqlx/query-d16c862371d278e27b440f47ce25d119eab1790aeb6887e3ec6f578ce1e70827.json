@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO processed_purchases\n            (tx_hash, source_avatar_id, clone_avatar_id, buyer, creator, price_yocto)\n        VALUES ($1, $2, $3, $4, $5, $6)\n        ON CONFLICT (tx_hash) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Numeric"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d16c862371d278e27b440f47ce25d119eab1790aeb6887e3ec6f578ce1e70827"
+}

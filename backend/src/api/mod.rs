@@ -7,10 +7,13 @@
 //! | `GET /avatars`, `/avatars/{id}`, `…/decisions`, `…/equity` | anyone (persona only to its creator, D39) |
 //! | `POST /avatars` | logged in |
 //! | `PATCH /avatars/{id}` | the owner (D40) |
+//! | `GET /marketplace/listings` | anyone |
+//! | `POST /marketplace/claim` | logged in (turns a paid purchase into a clone) |
 //! | `GET /ws` | anyone (public events only, D43) |
 
 pub mod auth;
 mod avatars;
+mod marketplace;
 pub mod near_rpc;
 pub mod nep413;
 pub mod villages;
@@ -42,6 +45,8 @@ pub struct AppState {
     pub http: reqwest::Client,
     /// `NEAR_RPC_URL`.
     pub near_rpc_url: String,
+    /// `MARKETPLACE_CONTRACT_ID`: the only contract whose events create clones.
+    pub marketplace_contract_id: String,
 }
 
 /// Builds the router with every HTTP route of the backend.
@@ -64,6 +69,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/avatars/{id}/decisions", get(avatars::list_decisions))
         .route("/avatars/{id}/equity", get(avatars::list_equity))
+        .route("/marketplace/listings", get(marketplace::list_listings))
+        .route("/marketplace/claim", post(marketplace::claim_purchase))
         .route("/ws", get(ws::ws_handler))
         .with_state(state)
 }
@@ -139,6 +146,7 @@ pub(crate) mod tests {
             events: crate::live_events::channel(),
             http: reqwest::Client::new(),
             near_rpc_url: "http://127.0.0.1:9/".to_string(),
+            marketplace_contract_id: "marketplace.test".to_string(),
         }
     }
 

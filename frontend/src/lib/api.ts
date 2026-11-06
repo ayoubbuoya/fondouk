@@ -116,6 +116,27 @@ export interface LoginRequest {
   nonce: string
 }
 
+/** One character on sale (`GET /marketplace/listings`). Public data only: no persona (D7). */
+export interface MarketplaceListing {
+  avatar_id: string
+  name: string
+  sprite: string
+  risk: 'low' | 'medium' | 'high'
+  goal: 'steady_income' | 'max_yield' | 'protect_capital'
+  /** The account that receives 90% of the price. */
+  creator: string
+  /** Price in yoctoNEAR (1 NEAR = 10^24), a string: it does not fit a JS number. */
+  price_yocto: string
+}
+
+/** Answer of `POST /marketplace/claim`. */
+export interface ClaimResult {
+  /** The buyer's new character. */
+  avatar_id: string
+  /** `true` when this transaction was claimed before (nothing new was created). */
+  already_claimed: boolean
+}
+
 /** A non-2xx answer. `message` is the backend's `{"error": ...}` text. */
 export class ApiError extends Error {
   readonly status: number
@@ -171,6 +192,18 @@ export function getDecisions(id: string, source: AvatarMode, limit = 10): Promis
 
 export function getEquity(id: string, source: AvatarMode): Promise<EquityPoint[]> {
   return request('GET', `/avatars/${encodeURIComponent(id)}/equity?source=${source}`)
+}
+
+export function getListings(): Promise<MarketplaceListing[]> {
+  return request('GET', '/marketplace/listings')
+}
+
+/**
+ * Asks the backend to turn a paid purchase into a clone. The backend reads the
+ * transaction from the chain itself, so the hash is the only thing it trusts us with.
+ */
+export function claimPurchase(txHash: string): Promise<ClaimResult> {
+  return request('POST', '/marketplace/claim', { tx_hash: txHash })
 }
 
 export function createChallenge(): Promise<Challenge> {
