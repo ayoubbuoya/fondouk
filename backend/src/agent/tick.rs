@@ -37,6 +37,7 @@ use crate::db::decisions::{self, NewDecision};
 use crate::db::equity::{self, EquityPoint};
 use crate::db::{positions, villages, yield_snapshots};
 use crate::indexer::{is_stale, stop_requested};
+use crate::live_events::{LiveEvent, LiveSender, main_village, publish};
 use crate::sim::ledger::Ledger;
 
 /// `decisions.source` and `equity_snapshots.source` for live simulated avatars.
@@ -62,6 +63,7 @@ pub async fn run(
     llm: LlmClient,
     interval: Duration,
     stale_after: Duration,
+    events: LiveSender,
     mut shutdown: watch::Receiver<bool>,
 ) {
     tracing::info!(
@@ -76,7 +78,7 @@ pub async fn run(
     loop {
         tokio::select! {
             _ = ticker.tick() => {
-                match tick_once(&pool, &llm, stale_after, Utc::now()).await {
+                match tick_once(&pool, &llm, stale_after, &events, Utc::now()).await {
                     Ok(logged) => tracing::info!(decisions = logged, "agent tick done"),
                     Err(err) => tracing::error!("agent tick failed: {err:#}"),
                 }
@@ -89,7 +91,7 @@ pub async fn run(
 
 /// One tick: one decision per active `sim` avatar. Returns how many decisions
 /// were stored. One avatar failing (e.g. a database error) is logged and does
-/// not stop the others.
+/// not stop the others. Each stored decision is announced on `events` (D43).
 ///
 /// # Errors
 /// Only when the shared inputs (villages, avatars) cannot be loaded.
@@ -97,6 +99,7 @@ pub async fn tick_once(
     pool: &PgPool,
     llm: &LlmClient,
     stale_after: Duration,
+    events: &LiveSender,
     now: DateTime<Utc>,
 ) -> Result<usize> {
     let market = live_market(pool, now, stale_after).await?;
@@ -104,7 +107,7 @@ pub async fn tick_once(
 
     let mut logged = 0;
     for avatar in &avatars {
-        match tick_avatar(pool, llm, avatar, &market, now).await {
+        match tick_avatar(pool, llm, avatar, &market, events, now).await {
             Ok(()) => logged += 1,
             Err(err) => tracing::error!(avatar = %avatar.id, "agent decision failed: {err:#}"),
         }
@@ -113,21 +116,23 @@ pub async fn tick_once(
 }
 
 /// One avatar's tick. Nothing is written unless every step succeeds: the
-/// four writes share one transaction.
+/// four writes share one transaction. Events are published only after the
+/// commit, so a browser never hears about a tick that was rolled back.
 async fn tick_avatar(
     pool: &PgPool,
     llm: &LlmClient,
     avatar: &AvatarWithConfig,
     market: &LiveMarket,
+    events: &LiveSender,
     now: DateTime<Utc>,
 ) -> Result<()> {
     let risk: Risk = avatar.risk.parse().map_err(anyhow::Error::msg)?;
 
     // 1. Rebuild the ledger and grow it for the time since the last tick.
-    let mut ledger = Ledger::from_parts(
-        avatar.cash_usd,
-        positions::load_positions(pool, avatar.id).await?,
-    );
+    let stored_positions = positions::load_positions(pool, avatar.id).await?;
+    // Where the sprite stood before this tick (for `avatar_move`).
+    let village_before = main_village(&stored_positions);
+    let mut ledger = Ledger::from_parts(avatar.cash_usd, stored_positions);
     if let Some(last) = equity::last_equity_ts(pool, avatar.id, SOURCE).await? {
         // A negative gap (clock moved back) accrues nothing.
         if let Ok(seconds) = u64::try_from((now - last).num_seconds()) {
@@ -186,6 +191,32 @@ async fn tick_avatar(
     equity::insert_equity_point(&mut *tx, avatar.id, SOURCE, &point).await?;
     // An early `?` above drops `tx` without commit: sqlx rolls it all back.
     tx.commit().await?;
+
+    // 5. Tell the browsers (public fields only: no persona, D43).
+    publish(
+        events,
+        LiveEvent::Decision {
+            avatar_id: avatar.id,
+            ts: now,
+            action: row.applied_action.clone(),
+            valid: row.rejected_rule.is_none(),
+            rejected_rule: row.rejected_rule.clone(),
+            reason_public: row.reason_public.clone(),
+            cost_usd: row.cost_usd,
+            equity_usd: point.equity_usd,
+        },
+    );
+    let village_after = main_village(ledger.positions());
+    if village_after != village_before {
+        publish(
+            events,
+            LiveEvent::AvatarMove {
+                avatar_id: avatar.id,
+                from: village_before,
+                to: village_after,
+            },
+        );
+    }
 
     tracing::info!(
         avatar = %avatar.id,
@@ -266,8 +297,18 @@ mod tests {
 
     use super::*;
     use crate::config::LlmConfig;
+    use crate::live_events::channel;
 
     const TWO_HOURS: Duration = Duration::from_secs(7200);
+
+    /// Every event published so far on a subscribed receiver.
+    fn drain(receiver: &mut tokio::sync::broadcast::Receiver<LiveEvent>) -> Vec<LiveEvent> {
+        let mut events = Vec::new();
+        while let Ok(event) = receiver.try_recv() {
+            events.push(event);
+        }
+        events
+    }
 
     fn now() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 11, 5, 12, 0, 0).unwrap()
@@ -413,7 +454,7 @@ mod tests {
 
         for tick in 0..3 {
             assert_eq!(
-                tick_once(&pool, &llm, TWO_HOURS, later(tick))
+                tick_once(&pool, &llm, TWO_HOURS, &channel(), later(tick))
                     .await
                     .unwrap(),
                 5
@@ -445,7 +486,9 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let llm = client(&fake_llm("I think holding is wise.", calls.clone()).await);
 
-        tick_once(&pool, &llm, TWO_HOURS, now()).await.unwrap();
+        tick_once(&pool, &llm, TWO_HOURS, &channel(), now())
+            .await
+            .unwrap();
 
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         let row = only_decision(&pool, avatar).await;
@@ -462,7 +505,9 @@ mod tests {
         // Port 9 (discard) on localhost: nothing listens, connection refused.
         let llm = client("http://127.0.0.1:9");
 
-        tick_once(&pool, &llm, TWO_HOURS, now()).await.unwrap();
+        tick_once(&pool, &llm, TWO_HOURS, &channel(), now())
+            .await
+            .unwrap();
 
         let row = only_decision(&pool, avatar).await;
         assert_eq!(row.rejected_rule.as_deref(), Some("llm_error"));
@@ -476,7 +521,9 @@ mod tests {
             r#"{"action":"REBALANCE","weights":{"rhea-dex-frax-usdc":100},"reason":"FRAX pays."}"#;
         let llm = client(&fake_llm(answer, Arc::new(AtomicUsize::new(0))).await);
 
-        tick_once(&pool, &llm, TWO_HOURS, now()).await.unwrap();
+        tick_once(&pool, &llm, TWO_HOURS, &channel(), now())
+            .await
+            .unwrap();
 
         let row = only_decision(&pool, avatar).await;
         assert_eq!(row.rejected_rule.as_deref(), Some("village_unavailable"));
@@ -505,7 +552,9 @@ mod tests {
         let answer = r#"{"action":"REBALANCE","weights":{"rhea-lend-usdc":50,"rhea-lend-usdt":50},"reason":"Split."}"#;
         let llm = client(&fake_llm(answer, Arc::new(AtomicUsize::new(0))).await);
 
-        tick_once(&pool, &llm, TWO_HOURS, now()).await.unwrap();
+        tick_once(&pool, &llm, TWO_HOURS, &channel(), now())
+            .await
+            .unwrap();
 
         // Cost: 2 lending entries (2 × 0.02 gas) + the USDC -> USDT swap of
         // 500 through the stable pool (0.10 fee + 0.025 slippage + 0.02 gas).
@@ -517,7 +566,9 @@ mod tests {
         assert_eq!(held["rhea-lend-usdt"], d("499.9075"));
 
         // Second tick: refused by the low-risk cooldown, but the money earns.
-        tick_once(&pool, &llm, TWO_HOURS, later(1)).await.unwrap();
+        tick_once(&pool, &llm, TWO_HOURS, &channel(), later(1))
+            .await
+            .unwrap();
 
         let points = equity::list_equity(&pool, avatar, "sim").await.unwrap();
         assert_eq!(points.len(), 2);
@@ -543,7 +594,9 @@ mod tests {
             .await,
         );
 
-        tick_once(&pool, &llm, TWO_HOURS, now()).await.unwrap();
+        tick_once(&pool, &llm, TWO_HOURS, &channel(), now())
+            .await
+            .unwrap();
 
         let points = equity::list_equity(&pool, avatar, "sim").await.unwrap();
         assert_eq!(points.len(), 1);
@@ -558,8 +611,12 @@ mod tests {
         let answer = r#"{"action":"REBALANCE","weights":{"rhea-lend-usdc":50,"rhea-lend-usdt":50},"reason":"Split."}"#;
         let llm = client(&fake_llm(answer, Arc::new(AtomicUsize::new(0))).await);
 
-        tick_once(&pool, &llm, TWO_HOURS, now()).await.unwrap();
-        tick_once(&pool, &llm, TWO_HOURS, later(1)).await.unwrap();
+        tick_once(&pool, &llm, TWO_HOURS, &channel(), now())
+            .await
+            .unwrap();
+        tick_once(&pool, &llm, TWO_HOURS, &channel(), later(1))
+            .await
+            .unwrap();
 
         let rows = decisions::list_decisions(&pool, avatar, "sim", 10)
             .await
@@ -583,7 +640,9 @@ mod tests {
             .await,
         );
 
-        tick_once(&pool, &llm, TWO_HOURS, now()).await.unwrap();
+        tick_once(&pool, &llm, TWO_HOURS, &channel(), now())
+            .await
+            .unwrap();
 
         let row = only_decision(&pool, avatar).await;
         let stored = format!("{row:?}");
@@ -608,7 +667,82 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(tick_once(&pool, &llm, TWO_HOURS, now()).await.unwrap(), 1);
+        assert_eq!(
+            tick_once(&pool, &llm, TWO_HOURS, &channel(), now())
+                .await
+                .unwrap(),
+            1
+        );
         only_decision(&pool, active).await;
+    }
+
+    /// D43: a move is announced as `decision` then `avatar_move` (cash ->
+    /// the largest position; a 50/50 tie goes to the smallest village id).
+    #[sqlx::test]
+    async fn a_move_publishes_a_decision_and_an_avatar_move(pool: PgPool) {
+        seed_villages(&pool, None).await;
+        let persona = "Secret plan: split lending.";
+        let avatar = create_avatar(&pool, persona, "low").await;
+        let answer = r#"{"action":"REBALANCE","weights":{"rhea-lend-usdc":50,"rhea-lend-usdt":50},"reason":"Split."}"#;
+        let llm = client(&fake_llm(answer, Arc::new(AtomicUsize::new(0))).await);
+        let events = channel();
+        let mut receiver = events.subscribe();
+
+        tick_once(&pool, &llm, TWO_HOURS, &events, now())
+            .await
+            .unwrap();
+
+        let published = drain(&mut receiver);
+        assert_eq!(published.len(), 2, "{published:?}");
+        let LiveEvent::Decision {
+            avatar_id,
+            valid,
+            cost_usd,
+            ref action,
+            ..
+        } = published[0]
+        else {
+            panic!("expected a decision first, got {:?}", published[0]);
+        };
+        assert_eq!(avatar_id, avatar);
+        assert!(valid);
+        assert_eq!(cost_usd, d("0.185"));
+        assert_eq!(action["action"], "REBALANCE");
+        assert_eq!(
+            published[1],
+            LiveEvent::AvatarMove {
+                avatar_id: avatar,
+                from: None,
+                to: Some("rhea-lend-usdc".to_string()),
+            }
+        );
+        let serialized = serde_json::to_string(&published).unwrap();
+        assert!(!serialized.contains("Secret plan"), "no persona in events");
+    }
+
+    #[sqlx::test]
+    async fn a_hold_publishes_only_a_decision(pool: PgPool) {
+        seed_villages(&pool, None).await;
+        create_avatar(&pool, "Wait.", "low").await;
+        let llm = client(
+            &fake_llm(
+                r#"{"action":"HOLD","reason":"Wait."}"#,
+                Arc::new(AtomicUsize::new(0)),
+            )
+            .await,
+        );
+        let events = channel();
+        let mut receiver = events.subscribe();
+
+        tick_once(&pool, &llm, TWO_HOURS, &events, now())
+            .await
+            .unwrap();
+
+        let published = drain(&mut receiver);
+        assert_eq!(published.len(), 1);
+        assert!(matches!(
+            &published[0],
+            LiveEvent::Decision { equity_usd, .. } if *equity_usd == d("1000")
+        ));
     }
 }

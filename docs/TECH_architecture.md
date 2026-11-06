@@ -198,17 +198,16 @@ fondouk/
 - Creates the clone row in the database. Idempotent by tx hash.
 
 ### 5.7 api
-REST:
-- `GET /villages`, `GET /villages/:id/history`
-- `GET /avatars`, `GET /avatars/:id`, `GET /avatars/:id/decisions`, `GET /avatars/:id/equity`
-- `POST /avatars` (create, runs backtest), `PATCH /avatars/:id` (owner only)
-- `GET /leaderboard?window=7d|30d&tab=main|new`
-- `GET /arena/feed`
-- `POST /auth/near` (verify signed message, start session)
+REST (built on Day 5 unless marked planned):
+- `GET /villages`, `GET /villages/{id}/history?days=7` (1–30)
+- `GET /avatars?owner=`, `GET /avatars/{id}`, `GET /avatars/{id}/decisions?source=&limit=` (newest first, limit ≤ 100), `GET /avatars/{id}/equity?source=` (`source` is required: backtest, sim and real are never mixed)
+- `POST /avatars` (logged in; create + run the backtest, `backtest: null` if it fails, D41; `mode: real` is 400 until Day 10, D42), `PATCH /avatars/{id}` (owner only: name, sprite, active, persona → new config row; no persona edit on clones, D40)
+- `POST /auth/challenge`, `POST /auth/near` (NEP-413, D38), `POST /auth/logout`, `GET /auth/me`. Session = HttpOnly `SameSite=Lax` cookie, so the frontend must reach the REST API same-origin (Vite proxy in dev, Vercel rewrite in prod, D37).
+- planned: `GET /leaderboard?window=7d|30d&tab=main|new` (Day 11), `GET /arena/feed` (Day 12)
 
-WebSocket `/ws` messages: `apr_update`, `decision`, `avatar_move`, `arena_message`, `clone_created`.
+WebSocket `/ws` (public, server → client JSON with a `type` field, D43): `apr_update` (after each indexer round, same shape as `GET /villages`), `decision` and `avatar_move` (after each avatar's tick commit). Planned: `arena_message`, `clone_created`. It needs no login and can connect directly to the backend (Vercel rewrites do not proxy WebSockets).
 
-The persona field is only returned to the owner, and never inside WebSocket messages.
+The persona is only returned to the account that created the config (`avatar_configs.created_by`, D39), so a clone buyer never sees it. It is never inside WebSocket messages.
 
 ---
 

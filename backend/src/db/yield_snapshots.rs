@@ -95,6 +95,29 @@ pub async fn daily_history(
     .await
 }
 
+/// Every stored point of one village with `ts >= since`, oldest first. Used
+/// for the village sparkline (`GET /villages/:id/history`, F2.3). Served by
+/// the (village_id, ts) primary key index.
+pub async fn history_since(
+    pool: &PgPool,
+    village_id: &str,
+    since: DateTime<Utc>,
+) -> sqlx::Result<Vec<YieldSnapshot>> {
+    sqlx::query_as!(
+        YieldSnapshot,
+        r#"
+        SELECT village_id, ts, apy_base, apy_reward, tvl_usd
+        FROM yield_snapshots
+        WHERE village_id = $1 AND ts >= $2
+        ORDER BY ts
+        "#,
+        village_id,
+        since,
+    )
+    .fetch_all(pool)
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,5 +276,29 @@ mod tests {
 
         let db_err = err.as_database_error().expect("expected a database error");
         assert!(db_err.is_foreign_key_violation());
+    }
+
+    #[sqlx::test]
+    async fn history_since_returns_one_village_from_since_oldest_first(pool: PgPool) {
+        insert_all(
+            &pool,
+            &[
+                snapshot("rhea-lend-usdc", 9, d("12")),
+                snapshot("rhea-lend-usdc", 3, d("10")),
+                snapshot("rhea-lend-usdc", 6, d("11")),
+                snapshot("rhea-lend-usdt", 7, d("13")),
+            ],
+        )
+        .await;
+        let since = Utc.with_ymd_and_hms(2026, 11, 2, 6, 0, 0).unwrap();
+
+        let history = history_since(&pool, "rhea-lend-usdc", since).await.unwrap();
+
+        let apys: Vec<Decimal> = history.iter().map(|s| s.apy_base).collect();
+        assert_eq!(
+            apys,
+            vec![d("11"), d("12")],
+            "from 06:00 inclusive, ordered"
+        );
     }
 }

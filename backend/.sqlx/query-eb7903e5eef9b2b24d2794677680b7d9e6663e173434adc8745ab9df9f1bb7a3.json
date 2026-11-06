@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM auth_challenges WHERE nonce = $1 AND expires_at > $2 RETURNING nonce",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "nonce",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "auth_challenges",
+            "name": "nonce"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "eb7903e5eef9b2b24d2794677680b7d9e6663e173434adc8745ab9df9f1bb7a3"
+}

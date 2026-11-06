@@ -1,7 +1,7 @@
 //! Queries for the `positions` table: how much of a live (`sim`) avatar's
 //! money sits in each village. Cash is in `avatars.cash_usd`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use rust_decimal::Decimal;
 use sqlx::{PgConnection, PgPool};
@@ -23,6 +23,25 @@ pub async fn load_positions(
         .into_iter()
         .map(|row| (row.village_id, row.value_usd))
         .collect())
+}
+
+/// Every avatar's positions in one query, avatar id -> (village id -> USD).
+/// Used by `GET /avatars`, so listing N avatars costs 2 queries, not N + 1.
+/// Avatars holding only cash are absent.
+pub async fn list_all_positions(
+    pool: &PgPool,
+) -> sqlx::Result<HashMap<Uuid, BTreeMap<String, Decimal>>> {
+    let rows = sqlx::query!("SELECT avatar_id, village_id, value_usd FROM positions")
+        .fetch_all(pool)
+        .await?;
+    let mut by_avatar: HashMap<Uuid, BTreeMap<String, Decimal>> = HashMap::new();
+    for row in rows {
+        by_avatar
+            .entry(row.avatar_id)
+            .or_default()
+            .insert(row.village_id, row.value_usd);
+    }
+    Ok(by_avatar)
 }
 
 /// Replaces all of the avatar's positions with `positions`.
@@ -147,5 +166,24 @@ mod tests {
             .unwrap_err();
 
         assert!(err.as_database_error().unwrap().is_foreign_key_violation());
+    }
+
+    #[sqlx::test]
+    async fn list_all_positions_groups_by_avatar(pool: PgPool) {
+        let first = create_avatar(&pool).await;
+        let second = create_avatar(&pool).await;
+        let all_cash = create_avatar(&pool).await;
+        let mut conn = pool.acquire().await.unwrap();
+        let held = positions(&[("rhea-lend-usdc", 600), ("rhea-lend-usdt", 400)]);
+        replace_positions(&mut conn, first, &held).await.unwrap();
+        replace_positions(&mut conn, second, &positions(&[("rhea-lend-usdc", 5)]))
+            .await
+            .unwrap();
+
+        let all = list_all_positions(&pool).await.unwrap();
+
+        assert_eq!(all[&first], held);
+        assert_eq!(all[&second], positions(&[("rhea-lend-usdc", 5)]));
+        assert!(!all.contains_key(&all_cash));
     }
 }

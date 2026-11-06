@@ -6,9 +6,13 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.104"
 async-openai = { version = "0.43.0", features = ["chat-completion"] }
-axum = "0.8.9"
+axum = { version = "0.8.9", features = ["ws"] }
+base64 = "0.23.1"
+bs58 = "0.5.1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde", "std"] }
 dotenvy = "0.15.7"
+ed25519-dalek = "3.0.0"
+getrandom = "0.4.3"
 hex = "0.4.3"
 reqwest = { version = "0.13.5", features = ["json"] }
 rust_decimal = { version = "1.43.0", features = ["maths", "serde"] }
@@ -19,8 +23,10 @@ sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-uuid = "1.29.0"
+uuid = { version = "1.29.0", features = ["serde"] }
 
 [dev-dependencies]
+futures-util = "0.3.34"
 http-body-util = "0.1.5"
+tokio-tungstenite = "0.29"
 tower = { version = "0.5.3", features = ["util"] }

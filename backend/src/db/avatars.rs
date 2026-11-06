@@ -53,15 +53,29 @@ pub struct AvatarWithConfig {
     pub persona: String,
     pub risk: String,
     pub goal: String,
+    /// Who wrote the strategy (`avatar_configs.created_by`). Only this account
+    /// may read the persona (D39); for a clone it is the creator, not the buyer.
+    pub config_created_by: String,
+}
+
+/// The fields `PATCH /avatars/:id` may change (D40). The caller passes the
+/// full new values (old value for anything not being changed).
+#[derive(Debug, Clone)]
+pub struct AvatarUpdate {
+    pub name: String,
+    pub sprite: String,
+    pub active: bool,
+    /// A new strategy row when the persona changed, else the current one.
+    pub config_id: Uuid,
 }
 
 /// Creates the user if it does not exist yet. Calling it again is a no-op.
-pub async fn ensure_user(pool: &PgPool, account_id: &str) -> sqlx::Result<()> {
+pub async fn ensure_user<'e>(executor: impl PgExecutor<'e>, account_id: &str) -> sqlx::Result<()> {
     sqlx::query!(
         "INSERT INTO users (account_id) VALUES ($1) ON CONFLICT (account_id) DO NOTHING",
         account_id,
     )
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(())
 }
@@ -71,7 +85,10 @@ pub async fn ensure_user(pool: &PgPool, account_id: &str) -> sqlx::Result<()> {
 /// # Errors
 /// Foreign key violation if `created_by` is not a user; CHECK violation for a
 /// persona outside 1..=2000 characters or an unknown `risk` / `goal`.
-pub async fn insert_config(pool: &PgPool, config: &NewConfig) -> sqlx::Result<Uuid> {
+pub async fn insert_config<'e>(
+    executor: impl PgExecutor<'e>,
+    config: &NewConfig,
+) -> sqlx::Result<Uuid> {
     sqlx::query_scalar!(
         r#"
         INSERT INTO avatar_configs (persona, risk, goal, created_by)
@@ -83,7 +100,7 @@ pub async fn insert_config(pool: &PgPool, config: &NewConfig) -> sqlx::Result<Uu
         config.goal,
         config.created_by,
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await
 }
 
@@ -93,7 +110,10 @@ pub async fn insert_config(pool: &PgPool, config: &NewConfig) -> sqlx::Result<Uu
 /// # Errors
 /// Foreign key violation for an unknown owner or config; CHECK violation for a
 /// name outside 1..=32 characters, an unknown `mode`, or capital <= 0.
-pub async fn insert_avatar(pool: &PgPool, avatar: &NewAvatar) -> sqlx::Result<Uuid> {
+pub async fn insert_avatar<'e>(
+    executor: impl PgExecutor<'e>,
+    avatar: &NewAvatar,
+) -> sqlx::Result<Uuid> {
     sqlx::query_scalar!(
         r#"
         INSERT INTO avatars (owner, config_id, name, sprite, mode, starting_capital_usd, cash_usd)
@@ -107,7 +127,7 @@ pub async fn insert_avatar(pool: &PgPool, avatar: &NewAvatar) -> sqlx::Result<Uu
         avatar.mode,
         avatar.starting_capital_usd,
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await
 }
 
@@ -146,7 +166,8 @@ pub async fn get_avatar_with_config(
         r#"
         SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,
                a.active, a.cloned_from, a.listed, a.created_at,
-               c.id AS config_id, c.persona, c.risk, c.goal
+               c.id AS config_id, c.persona, c.risk, c.goal,
+               c.created_by AS config_created_by
         FROM avatars a
         JOIN avatar_configs c ON c.id = a.config_id
         WHERE a.id = $1
@@ -157,6 +178,60 @@ pub async fn get_avatar_with_config(
     .await
 }
 
+/// Every avatar (active or not), oldest first; only `owner`'s when given.
+/// Used by `GET /avatars`. Contains the persona: the API drops it.
+pub async fn list_avatars(
+    pool: &PgPool,
+    owner: Option<&str>,
+) -> sqlx::Result<Vec<AvatarWithConfig>> {
+    // `$1 IS NULL OR …` keeps one query for both cases. Fine at hackathon
+    // scale (tens of avatars); a large table would want two queries.
+    sqlx::query_as!(
+        AvatarWithConfig,
+        r#"
+        SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,
+               a.active, a.cloned_from, a.listed, a.created_at,
+               c.id AS config_id, c.persona, c.risk, c.goal,
+               c.created_by AS config_created_by
+        FROM avatars a
+        JOIN avatar_configs c ON c.id = a.config_id
+        WHERE $1::TEXT IS NULL OR a.owner = $1
+        ORDER BY a.created_at, a.id
+        "#,
+        owner,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Writes the editable fields of an avatar (D40). Does not touch `cash_usd`,
+/// so it cannot overwrite what a tick running at the same time stores.
+///
+/// # Errors
+/// CHECK violation for a name outside 1..=32 characters; foreign key
+/// violation for an unknown config; `sqlx::Error::RowNotFound` when no avatar
+/// has this id.
+pub async fn update_avatar<'e>(
+    executor: impl PgExecutor<'e>,
+    avatar_id: Uuid,
+    update: &AvatarUpdate,
+) -> sqlx::Result<()> {
+    let result = sqlx::query!(
+        "UPDATE avatars SET name = $2, sprite = $3, active = $4, config_id = $5 WHERE id = $1",
+        avatar_id,
+        update.name,
+        update.sprite,
+        update.active,
+        update.config_id,
+    )
+    .execute(executor)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(sqlx::Error::RowNotFound);
+    }
+    Ok(())
+}
+
 /// Every active avatar in `mode`, with its strategy, oldest first. Used by
 /// the agent tick loop.
 pub async fn list_active_avatars(pool: &PgPool, mode: &str) -> sqlx::Result<Vec<AvatarWithConfig>> {
@@ -165,7 +240,8 @@ pub async fn list_active_avatars(pool: &PgPool, mode: &str) -> sqlx::Result<Vec<
         r#"
         SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,
                a.active, a.cloned_from, a.listed, a.created_at,
-               c.id AS config_id, c.persona, c.risk, c.goal
+               c.id AS config_id, c.persona, c.risk, c.goal,
+               c.created_by AS config_created_by
         FROM avatars a
         JOIN avatar_configs c ON c.id = a.config_id
         WHERE a.active AND a.mode = $1
@@ -362,6 +438,86 @@ mod tests {
         assert!(is_check_violation(&err), "{err}");
         assert!(matches!(
             update_cash(&pool, Uuid::nil(), Decimal::ONE).await,
+            Err(sqlx::Error::RowNotFound)
+        ));
+    }
+
+    #[sqlx::test]
+    async fn list_avatars_filters_by_owner(pool: PgPool) {
+        let config_id = setup_config(&pool).await;
+        insert_avatar(&pool, &new_avatar(config_id, 1_000))
+            .await
+            .unwrap();
+        ensure_user(&pool, "bob.testnet").await.unwrap();
+        let bob_config = insert_config(
+            &pool,
+            &NewConfig {
+                created_by: "bob.testnet".to_string(),
+                ..new_config("Bob's plan.", "high")
+            },
+        )
+        .await
+        .unwrap();
+        insert_avatar(
+            &pool,
+            &NewAvatar {
+                owner: "bob.testnet".to_string(),
+                ..new_avatar(bob_config, 1_000)
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(list_avatars(&pool, None).await.unwrap().len(), 2);
+        let bobs = list_avatars(&pool, Some("bob.testnet")).await.unwrap();
+        assert_eq!(bobs.len(), 1);
+        assert_eq!(bobs[0].config_created_by, "bob.testnet");
+    }
+
+    #[sqlx::test]
+    async fn update_avatar_changes_the_editable_fields_only(pool: PgPool) {
+        let config_id = setup_config(&pool).await;
+        let avatar = insert_avatar(&pool, &new_avatar(config_id, 1_000))
+            .await
+            .unwrap();
+        let new_config_id = insert_config(&pool, &new_config("New plan.", "low"))
+            .await
+            .unwrap();
+
+        update_avatar(
+            &pool,
+            avatar,
+            &AvatarUpdate {
+                name: "Yusra".to_string(),
+                sprite: "trader_2".to_string(),
+                active: false,
+                config_id: new_config_id,
+            },
+        )
+        .await
+        .unwrap();
+
+        let stored = get_avatar_with_config(&pool, avatar)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.name, "Yusra");
+        assert_eq!(stored.sprite, "trader_2");
+        assert!(!stored.active);
+        assert_eq!(stored.persona, "New plan.");
+        assert_eq!(stored.cash_usd, Decimal::from(1_000), "cash untouched");
+        assert!(matches!(
+            update_avatar(
+                &pool,
+                Uuid::nil(),
+                &AvatarUpdate {
+                    name: "x".to_string(),
+                    sprite: "x".to_string(),
+                    active: true,
+                    config_id,
+                }
+            )
+            .await,
             Err(sqlx::Error::RowNotFound)
         ));
     }

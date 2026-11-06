@@ -1,25 +1,35 @@
 //! `GET /villages`: every active village with its latest yield and a stale flag.
+//! `GET /villages/{id}/history`: its yield points, for the sparkline (F2.3).
 //! Used by the town map (Day 6); the agents (Day 3) apply the same stale rule.
 
 use std::collections::HashMap;
 use std::time::Duration;
 
-use axum::{Json, extract::State};
-use chrono::{DateTime, Utc};
+use axum::{
+    Json,
+    extract::{Path, Query, State},
+};
+use chrono::{DateTime, TimeDelta, Utc};
 use rust_decimal::Decimal;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 
 use super::{ApiError, AppState};
 use crate::db::villages::{self, Village};
 use crate::db::yield_snapshots::{self, YieldSnapshot};
 use crate::indexer::is_stale;
 
+/// History window when `?days=` is not given: a 7-day sparkline (F2.3).
+const DEFAULT_HISTORY_DAYS: i64 = 7;
+/// Longest window: the backtest window, and all DefiLlama gives us anyway.
+const MAX_HISTORY_DAYS: i64 = 30;
+
 /// One village as the API returns it.
 ///
 /// Decimals are serialized as JSON **strings** (e.g. `"14.01014"`), so the
 /// browser never turns them into rounded floats. Yield fields are `null` until
 /// the indexer has stored a first snapshot for the village.
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct VillageDto {
     pub id: String,
     pub name: String,
@@ -39,29 +49,92 @@ pub struct VillageDto {
     pub stale: bool,
 }
 
-/// Handler: two queries (villages, then latest snapshot per village) joined in
-/// memory. With 4 villages this is simpler than one big SQL join and reuses
-/// the existing db functions; it is not an N+1 pattern (always 2 queries).
+/// One yield point of a village's history.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct YieldPointDto {
+    pub ts: DateTime<Utc>,
+    pub apy_base: Decimal,
+    pub apy_reward: Decimal,
+    pub tvl_usd: Decimal,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HistoryQuery {
+    days: Option<i64>,
+}
+
+/// Handler for `GET /villages`.
 pub async fn list_villages(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<VillageDto>>, ApiError> {
-    let villages = villages::list_active_villages(&state.db).await?;
+    Ok(Json(
+        current_villages(&state.db, Utc::now(), state.village_stale_after).await?,
+    ))
+}
+
+/// Every active village with its latest yield and stale flag. Shared by
+/// `GET /villages` and the indexer's `apr_update` event, so both always say
+/// the same thing.
+///
+/// Two queries (villages, then latest snapshot per village) joined in memory.
+/// With 4 villages this is simpler than one big SQL join and reuses the
+/// existing db functions; it is not an N+1 pattern (always 2 queries).
+pub async fn current_villages(
+    pool: &PgPool,
+    now: DateTime<Utc>,
+    stale_after: Duration,
+) -> sqlx::Result<Vec<VillageDto>> {
+    let villages = villages::list_active_villages(pool).await?;
     let mut latest: HashMap<String, YieldSnapshot> =
-        yield_snapshots::latest_snapshot_per_village(&state.db)
+        yield_snapshots::latest_snapshot_per_village(pool)
             .await?
             .into_iter()
             .map(|snapshot| (snapshot.village_id.clone(), snapshot))
             .collect();
 
-    let now = Utc::now();
-    let body = villages
+    Ok(villages
         .into_iter()
         .map(|village| {
             let snapshot = latest.remove(&village.id);
-            to_dto(village, snapshot, now, state.village_stale_after)
+            to_dto(village, snapshot, now, stale_after)
+        })
+        .collect())
+}
+
+/// `GET /villages/{id}/history?days=7`: every stored yield point of the last
+/// `days` days (1 to 30, default 7), oldest first. 404 for an unknown or
+/// inactive village.
+pub async fn village_history(
+    State(state): State<AppState>,
+    Path(village_id): Path<String>,
+    Query(query): Query<HistoryQuery>,
+) -> Result<Json<Vec<YieldPointDto>>, ApiError> {
+    let days = query.days.unwrap_or(DEFAULT_HISTORY_DAYS);
+    if !(1..=MAX_HISTORY_DAYS).contains(&days) {
+        return Err(ApiError::BadRequest(format!(
+            "days must be between 1 and {MAX_HISTORY_DAYS}"
+        )));
+    }
+    let known = villages::list_active_villages(&state.db)
+        .await?
+        .iter()
+        .any(|village| village.id == village_id);
+    if !known {
+        return Err(ApiError::NotFound);
+    }
+
+    let since = Utc::now() - TimeDelta::days(days);
+    let points = yield_snapshots::history_since(&state.db, &village_id, since)
+        .await?
+        .into_iter()
+        .map(|snapshot| YieldPointDto {
+            ts: snapshot.ts,
+            apy_base: snapshot.apy_base,
+            apy_reward: snapshot.apy_reward,
+            tvl_usd: snapshot.tvl_usd,
         })
         .collect();
-    Ok(Json(body))
+    Ok(Json(points))
 }
 
 /// Pure mapping from database rows to the API shape, so the stale flag and
@@ -91,7 +164,8 @@ fn to_dto(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::{router, tests::get};
+    use crate::api::router;
+    use crate::api::tests::{get, json, test_state};
     use axum::http::StatusCode;
     use chrono::TimeZone;
     use sqlx::PgPool;
@@ -183,10 +257,7 @@ mod tests {
         villages::mark_fetched(&pool, "rhea-lend-usdc", Utc::now())
             .await
             .unwrap();
-        let state = AppState {
-            db: pool,
-            village_stale_after: TWO_HOURS,
-        };
+        let state = test_state(pool);
 
         let (status, body) = get(router(state), "/villages").await;
 
@@ -202,5 +273,61 @@ mod tests {
         let never_fetched = list.iter().find(|v| v["id"] == "rhea-lend-usdt").unwrap();
         assert!(never_fetched["apy_base"].is_null());
         assert_eq!(never_fetched["stale"], true);
+    }
+
+    async fn insert_point(pool: &PgPool, village_id: &str, days_ago: i64, apy: &str) {
+        yield_snapshots::insert_snapshot(
+            pool,
+            &YieldSnapshot {
+                village_id: village_id.to_string(),
+                ts: Utc::now() - TimeDelta::days(days_ago),
+                apy_base: d(apy),
+                apy_reward: Decimal::ZERO,
+                tvl_usd: d("1000"),
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    #[sqlx::test]
+    async fn history_returns_the_window_oldest_first(pool: PgPool) {
+        insert_point(&pool, "rhea-lend-usdc", 20, "9").await;
+        insert_point(&pool, "rhea-lend-usdc", 5, "10").await;
+        insert_point(&pool, "rhea-lend-usdc", 1, "11").await;
+        insert_point(&pool, "rhea-lend-usdt", 1, "99").await;
+        let state = test_state(pool);
+
+        let (status, body) = get(router(state.clone()), "/villages/rhea-lend-usdc/history").await;
+        assert_eq!(status, StatusCode::OK);
+        let apys: Vec<String> = json(&body)
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["apy_base"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(apys, vec!["10", "11"], "default 7 days, this village only");
+
+        let (_, body) = get(router(state), "/villages/rhea-lend-usdc/history?days=30").await;
+        assert_eq!(json(&body).as_array().unwrap().len(), 3);
+    }
+
+    #[sqlx::test]
+    async fn history_rejects_bad_days_and_unknown_villages(pool: PgPool) {
+        let state = test_state(pool);
+
+        for uri in [
+            "/villages/rhea-lend-usdc/history?days=0",
+            "/villages/rhea-lend-usdc/history?days=31",
+        ] {
+            assert_eq!(
+                get(router(state.clone()), uri).await.0,
+                StatusCode::BAD_REQUEST
+            );
+        }
+        assert_eq!(
+            get(router(state), "/villages/nope/history").await.0,
+            StatusCode::NOT_FOUND
+        );
     }
 }

@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use backend::{agent, api, config::Config, db, indexer};
+use backend::{agent, api, config::Config, db, indexer, live_events};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tracing_subscriber::EnvFilter;
@@ -45,10 +45,17 @@ async fn main() -> Result<()> {
         .user_agent(concat!("fondouk-backend/", env!("CARGO_PKG_VERSION")))
         .build()
         .context("could not build the HTTP client")?;
+
+    // Live events for /ws: the indexer and the agent loop publish, each
+    // browser connection subscribes (D43).
+    let events = live_events::channel();
+
     let indexer_task = tokio::spawn(indexer::run(
         db_pool.clone(),
-        http,
+        http.clone(),
         config.indexer_interval,
+        config.village_stale_after,
+        events.clone(),
         shutdown_rx.clone(),
     ));
 
@@ -59,6 +66,7 @@ async fn main() -> Result<()> {
             agent::llm::LlmClient::new(llm_config),
             config.agent_tick_interval,
             config.village_stale_after,
+            events.clone(),
             shutdown_rx.clone(),
         ))),
         None => {
@@ -76,6 +84,9 @@ async fn main() -> Result<()> {
     let app_state = api::AppState {
         db: db_pool,
         village_stale_after: config.village_stale_after,
+        events,
+        http,
+        near_rpc_url: config.near_rpc_url.clone(),
     };
     axum::serve(listener, api::router(app_state))
         .with_graceful_shutdown(async move { indexer::stop_requested(&mut server_shutdown).await })

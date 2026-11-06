@@ -8,4 +8,5 @@ pub mod backtest;
 pub mod config;
 pub mod db;
 pub mod indexer;
+pub mod live_events;
 pub mod sim;

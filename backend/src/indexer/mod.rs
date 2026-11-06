@@ -15,11 +15,14 @@ use sqlx::PgPool;
 use tokio::sync::watch;
 use tokio::time::MissedTickBehavior;
 
+use crate::api::villages::current_villages;
 use crate::db::villages::{self, Village};
 use crate::db::yield_snapshots::{self, YieldSnapshot};
+use crate::live_events::{LiveEvent, LiveSender, publish};
 use defillama::YieldPoint;
 
 /// Runs until `shutdown` turns `true`. The first round starts immediately.
+/// After each round, the current village list goes out as `apr_update` (D43).
 ///
 /// Shutdown is only checked between rounds, so a round in progress always
 /// finishes its database writes before the indexer stops.
@@ -27,6 +30,8 @@ pub async fn run(
     pool: PgPool,
     http: reqwest::Client,
     interval: Duration,
+    stale_after: Duration,
+    events: LiveSender,
     mut shutdown: watch::Receiver<bool>,
 ) {
     tracing::info!(interval_secs = interval.as_secs(), "indexer started");
@@ -37,7 +42,10 @@ pub async fn run(
 
     loop {
         tokio::select! {
-            _ = ticker.tick() => index_once(&pool, &http).await,
+            _ = ticker.tick() => {
+                index_once(&pool, &http).await;
+                announce_villages(&pool, stale_after, &events, Utc::now()).await;
+            }
             () = stop_requested(&mut shutdown) => break,
         }
     }
@@ -69,6 +77,21 @@ pub async fn index_once(pool: &PgPool, http: &reqwest::Client) {
             // `{:#}` prints the whole context chain, e.g. "request to ... failed: timeout".
             tracing::warn!(village = %village.id, "indexer fetch failed: {err:#}");
         }
+    }
+}
+
+/// Publishes `apr_update` with exactly what `GET /villages` would return now.
+/// Sent every round, even without new points, because the stale flags may
+/// have changed. A database error is logged; the next round tries again.
+pub async fn announce_villages(
+    pool: &PgPool,
+    stale_after: Duration,
+    events: &LiveSender,
+    now: DateTime<Utc>,
+) {
+    match current_villages(pool, now, stale_after).await {
+        Ok(villages) => publish(events, LiveEvent::AprUpdate { villages }),
+        Err(err) => tracing::error!("could not load villages for apr_update: {err}"),
     }
 }
 
@@ -206,5 +229,25 @@ mod tests {
 
         assert_eq!(new_points, 1);
         assert_eq!(snapshot_count(&pool).await, 3);
+    }
+
+    #[sqlx::test]
+    async fn announce_villages_publishes_the_village_list(pool: PgPool) {
+        villages::mark_fetched(&pool, "rhea-lend-usdc", at(9, 0))
+            .await
+            .unwrap();
+        let events = crate::live_events::channel();
+        let mut receiver = events.subscribe();
+
+        announce_villages(&pool, TWO_HOURS, &events, at(10, 0)).await;
+
+        let LiveEvent::AprUpdate { villages } = receiver.try_recv().unwrap() else {
+            panic!("expected apr_update");
+        };
+        assert_eq!(villages.len(), 4);
+        let usdc = villages.iter().find(|v| v.id == "rhea-lend-usdc").unwrap();
+        assert!(!usdc.stale, "fetched an hour ago");
+        let usdt = villages.iter().find(|v| v.id == "rhea-lend-usdt").unwrap();
+        assert!(usdt.stale, "never fetched");
     }
 }

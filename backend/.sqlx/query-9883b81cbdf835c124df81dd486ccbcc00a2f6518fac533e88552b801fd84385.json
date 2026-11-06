@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT village_id, ts, apy_base, apy_reward, tvl_usd\n        FROM yield_snapshots\n        WHERE village_id = $1 AND ts >= $2\n        ORDER BY ts\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "village_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "yield_snapshots",
+            "name": "village_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "ts",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "yield_snapshots",
+            "name": "ts"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "apy_base",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "yield_snapshots",
+            "name": "apy_base"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "apy_reward",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "yield_snapshots",
+            "name": "apy_reward"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "tvl_usd",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "yield_snapshots",
+            "name": "tvl_usd"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9883b81cbdf835c124df81dd486ccbcc00a2f6518fac533e88552b801fd84385"
+}

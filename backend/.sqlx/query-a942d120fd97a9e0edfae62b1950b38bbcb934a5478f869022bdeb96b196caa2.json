@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT persona FROM avatar_configs WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "persona",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatar_configs",
+            "name": "persona"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a942d120fd97a9e0edfae62b1950b38bbcb934a5478f869022bdeb96b196caa2"
+}

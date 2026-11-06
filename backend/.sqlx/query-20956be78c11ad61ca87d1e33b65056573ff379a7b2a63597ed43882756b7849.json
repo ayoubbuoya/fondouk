@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,\n               a.active, a.cloned_from, a.listed, a.created_at,\n               c.id AS config_id, c.persona, c.risk, c.goal\n        FROM avatars a\n        JOIN avatar_configs c ON c.id = a.config_id\n        WHERE a.active AND a.mode = $1\n        ORDER BY a.created_at, a.id\n        ",
+  "query": "\n        SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,\n               a.active, a.cloned_from, a.listed, a.created_at,\n               c.id AS config_id, c.persona, c.risk, c.goal,\n               c.created_by AS config_created_by\n        FROM avatars a\n        JOIN avatar_configs c ON c.id = a.config_id\n        WHERE a.id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -167,11 +167,22 @@
             "name": "goal"
           }
         }
+      },
+      {
+        "ordinal": 15,
+        "name": "config_created_by",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatar_configs",
+            "name": "created_by"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -189,8 +200,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "2eed369549d24c64880af9091db30a34b060cb1e020fb236eb0435b4b1158989"
+  "hash": "20956be78c11ad61ca87d1e33b65056573ff379a7b2a63597ed43882756b7849"
 }

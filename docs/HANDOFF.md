@@ -8,7 +8,8 @@ This file is for anyone joining the project (teammates or a coding agent). Read 
 
 ## 1. Current state
 
-- **Phase:** Day 1 to Day 4 backend done (Day 4 on 6 Nov, about 2 days behind the day plan in section 4, no scope cut). Next: switch the backtest to the LLM (D35), then Day 5 (REST + WebSocket API, wallet auth).
+- **Phase:** Day 1 to Day 5 backend done (Day 5 on 6 Nov, about 1 day behind the day plan in section 4, no scope cut). Next: switch the backtest to the LLM (D35, D36), then Day 6 (frontend shell).
+- **Day 5 API (6 Nov):** NEP-413 wallet login with HttpOnly cookie sessions (D37, D38: `/auth/challenge`, `/auth/near`, `/auth/logout`, `/auth/me`), avatar endpoints (`GET /avatars`, `/avatars/{id}`, `…/decisions`, `…/equity`, `POST /avatars` with backtest, `PATCH /avatars/{id}`, D39–D42), `GET /villages/{id}/history`, and `/ws` live events (`apr_update`, `decision`, `avatar_move`, D43). Migration 0007 (`auth_challenges`, `sessions`). 253 tests pass. Login was only tested with locally generated keys: **a real NEAR Connect signature is first tested on Day 6.**
 - **What runs today:** `backend/` (axum + sqlx + Postgres). DefiLlama indexer for the 4 villages (D13, D14), fetching every hour (D19); it stores the full chart, so about 45 days of history are imported (D22). `GET /health`, `GET /villages` (latest yield + stale flag). Tables for users, strategies, avatars, positions, equity, decisions and LLM cache. Cost model (`sim::costs`, D31): pool fee + slippage + gas per step, and a stablecoin swap through the stable pool when the target does not accept the token. Guardrails (`agent::guardrails`, all of SPEC §6, including the 2 cost rules, D32) checked on every action. LLM decision pipeline (`agent::decide`: prompt, OpenAI-compatible call, parse, retry once, HOLD, cache). Agent tick loop (`agent::tick`, every 10 min, only when `LLM_*` is set): per sim avatar it accrues yield for the time since its last tick (D33), decides, moves the paper money paying the cost, and stores positions, cash, the decision and a `sim` equity point in one transaction (D34). Backtest engine pays the same costs, but still uses the mock decision rule (all-in on the best APY, so only `high` risk avatars invest with it; LLM switch is D35). 189 tests pass (the LLM is faked by a local test server). The real LLM call is **not tested yet** (no key, U5/U6). No frontend or contracts yet.
 - **Product code started:** 1 Nov 2026 (hackathon start).
 - **Deadline:** 14 Nov 2026, 23:59 UTC. Repo public + demo post on X + one submission.
@@ -58,6 +59,14 @@ The official page asks teams to build the project during the hackathon. We did n
 | D33 | (6 Nov) Live accrual covers the **real time** since the avatar's last `sim` equity point, at each village's latest APY (stale ones included). Rejected: a fixed `AGENT_TICK_SECS` per tick. | Money in a pool keeps earning while our server is down. No new column: the last equity row is the clock. |
 | D34 | (6 Nov) One `sim` equity point per avatar **every tick**, written in the same transaction as positions, cash and the decision. Rejected: hourly points. | Simplest; about 15k rows for 10 avatars by demo day. |
 | D35 | (6 Nov) Switching the backtest from the mock rule to the LLM is a **separate plan right after Day 4**. Rejected: folding it into Day 4. | Keeps the Day 4 change reviewable; it changes `backtest::run` to async. |
+| D36 | (6 Nov) Day 5 (API) is built **before** D35; D35 comes right after. Rejected: D35 first. | Ayoub asked for Day 5; the two do not clash (`POST /avatars` calls `run_for_avatar`, whose inside D35 changes). |
+| D37 | (6 Nov) Session = **HttpOnly cookie** `fondouk_session` (`Secure`, `SameSite=Lax`, 7 days), sha256 of the token stored in `sessions`. Frontend and REST API must be same-origin (Vite proxy in dev, Vercel rewrite in prod). `/ws` is public and connects directly. Rejected: `Authorization: Bearer` token (readable by JS, needs a CORS layer). | Matches the approved design (server-side, revocable); the cookie cannot be stolen by injected JS and Lax blocks cross-site POSTs. |
+| D38 | (6 Nov) Login = NEP-413: `POST /auth/challenge` (32-byte nonce, 5 min), `POST /auth/near` consumes the nonce first (atomic `DELETE … RETURNING`), verifies the ed25519 signature over `sha256(u32 2^31+413 ‖ borsh payload)`, recipient `fondouk`, and requires the key to be a **FullAccess** key of the account (RPC `view_access_key`, `NEAR_RPC_URL`). Borsh and cookie parsing written by hand. | Single-use nonce = no replay; a function-call key left in a browser does not prove account ownership. No DB transaction held during the RPC call. |
+| D39 | (6 Nov) Avatar `risk` and `goal` are public. `persona` is returned only when the viewer created the config (`avatar_configs.created_by`), so a clone buyer never sees it. | Buyers need the risk label before cloning; the persona stays the secret (D7). |
+| D40 | (6 Nov) `PATCH /avatars/:id` (owner only) can change `name`, `sprite`, `active`, `persona`. A persona edit inserts a new config row (Q-B) and is forbidden for clones. `risk` / `goal` are not editable. | Clones keep what they bought; no hidden strategy changes. |
+| D41 | (6 Nov) If the backtest fails on create (e.g. no history), the avatar is kept and the answer is 201 with `backtest: null`. Rejected: failing the whole request. | A data gap must not block character creation; the error is logged. |
+| D42 | (6 Nov) `POST /avatars` with `mode: "real"` returns 400 until real mode exists (Day 10). Sprite = 1–32 chars `[a-z0-9_-]` until the sprite list exists (Day 7). | No inert real avatars; no invented sprite names. |
+| D43 | (6 Nov) Live events go through one `tokio::sync::broadcast` channel (`live_events::LiveEvent`): `apr_update` after each indexer round, `decision` and `avatar_move` after each avatar's tick commit. Public data only, never the persona. `avatar_move` = the village holding the most money changed (`null` = all cash). | Every browser gets a copy; a slow browser loses old events instead of slowing the tick. |
 
 ---
 
@@ -96,7 +105,7 @@ Times are rough. P0 first, always.
 | 2 | 2 Nov | History import + backtest engine (with mock decide) | 30 equity rows for a test avatar. **Done 4 Nov** |
 | 3 | 3 Nov | Agent loop: prompt, LLM call, schema parse, guardrails. **Vault spike** (Rhea Lend call flow) | 3 ticks logged for 5 avatars. Spike result written in this file. **Done 5 Nov** |
 | 4 | 4 Nov | Sim ledger + cost model + tests | Cost and accrual tests pass. **Done 6 Nov** |
-| 5 | 5 Nov | REST + WebSocket API, wallet auth | Endpoints return real data |
+| 5 | 5 Nov | REST + WebSocket API, wallet auth | Endpoints return real data. **Done 6 Nov** |
 | 6 | 6 Nov | Frontend shell: React + wallet + Phaser map loads villages | Map with live APR labels |
 | 7 | 7 Nov | Sprites, movement on decisions, side panels | Avatar walks after a decision |
 
@@ -148,7 +157,7 @@ cargo near build
 cargo test
 ```
 
-Environment variables. The first five and the `LLM_*` / `AGENT_TICK_SECS` ones are used today (see `backend/.env.example`); the rest are planned.
+Environment variables. The first five, the `LLM_*` / `AGENT_TICK_SECS` ones and `NEAR_RPC_URL` are used today (see `backend/.env.example`); the rest are planned.
 
 | Name | Purpose |
 | --- | --- |
@@ -159,7 +168,7 @@ Environment variables. The first five and the `LLM_*` / `AGENT_TICK_SECS` ones a
 | `VILLAGE_STALE_AFTER_SECS` | Stale threshold, default 2 x the interval, must be longer than it (D20) |
 | `AGENT_TICK_SECS` | Seconds between agent ticks, default 600, minimum 60 |
 | `NEAR_NETWORK` | `testnet` or `mainnet` |
-| `NEAR_RPC_URL` | RPC endpoint |
+| `NEAR_RPC_URL` | RPC endpoint. Used today by login (key check, D38). Default `https://test.rpc.fastnear.com` (`rpc.testnet.near.org` is deprecated) |
 | `OPERATOR_ACCOUNT_ID` | Account that owns the vault operator function-call key |
 | `OPERATOR_PRIVATE_KEY` | Function-call key only. Never a full-access key. |
 | `MARKETPLACE_CONTRACT_ID` | Deployed marketplace |
@@ -193,6 +202,7 @@ Environment variables. The first five and the `LLM_*` / `AGENT_TICK_SECS` ones a
 | 4 Nov 2026 | Ayoub + Claude | Day 2 close-out: kept `CHECK (equity_usd >= 0)` and documented it (D25); committed the `.sqlx/` query cache for offline builds (D26). | Day 3: agent loop + vault spike. Open: how actions treat cash |
 | 5 Nov 2026 | Ayoub + Claude | Day 3: guardrails (D27, D29) and MOVE in the backtest; LLM decide pipeline (async-openai 0.43.0, prompt, parse, retry once, HOLD, `llm_cache`); migration 0005 (`decisions`, `llm_cache`); agent tick loop that logs decisions (D30); cost rules moved to Day 4 (D28). Vault spike: U2 partly, U3 flow known (see section 3), Rhea April exploit noted. 151 tests pass. | Day 4: positions + cost model. Ayoub: add `LLM_*` to test a real model (U5, U6); run the U2/U3 near-cli checks. |
 | 6 Nov 2026 | Ayoub + Claude | Day 4: migration 0006 (`positions`, `villages.fee_bps` + `tokens`, fees checked on-chain); kind-aware cost model `sim::costs` (D31); cost guardrails `min_gain`, `cost_too_high` and `no_swap_route` (D28, D32); ledger pays costs and accrues any duration (F6.2); live tick moves paper money, accrues real elapsed time (D33) and stores positions + cash + decision + sim equity in one transaction (D34); backtest pays costs; F6 acceptance test (frequent mover ends below holder). 189 tests pass. | Backtest on the LLM (D35), then Day 5 API. Ayoub: `LLM_*` key (U5, U6), U2/U3 checks. |
+| 6 Nov 2026 | Ayoub + Claude | Day 5 (before D35, D36): migration 0007 (`auth_challenges`, `sessions`); NEP-413 login + cookie sessions (D37, D38); avatar REST endpoints with persona privacy, create + backtest, owner-only PATCH (D39–D42); village history; `/ws` live events via one broadcast channel (D43). New deps: ed25519-dalek, bs58, base64, getrandom, axum `ws`, uuid `serde`; dev: tokio-tungstenite, futures-util. 253 tests pass. | D35 (backtest on the LLM), then Day 6 frontend: first real NEAR Connect login, Vite proxy for same-origin cookies. |
 
 ---
 

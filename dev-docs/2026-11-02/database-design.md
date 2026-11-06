@@ -231,7 +231,7 @@ Deliberately left out: a `ticks` table (`ts` is enough), persona encryption at r
 | Phase 2 (Day 1) | `villages`, `yield_snapshots`, seed of the 4 villages (D14) |
 | Day 2 to 3 | `users`, `avatar_configs`, `avatars`, `decisions`, `equity_snapshots`, `llm_cache` |
 | Day 4 | `positions`, `villages.fee_bps` + `villages.tokens` (verified pool fees, migration 0006) |
-| Day 5 | `auth_challenges`, `sessions` |
+| Day 5 | `auth_challenges`, `sessions` (migration 0007, done 6 Nov: both have `CHECK (octet_length(...) = 32)`, plus an index on `sessions(account_id)`) |
 | Day 9 | `clones`, `watcher_cursor` |
 | Day 10 | Real-mode accounting (to be designed) |
 | Day 12 | `arena_messages` |

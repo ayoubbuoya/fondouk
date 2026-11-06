@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE avatars SET name = $2, sprite = $3, active = $4, config_id = $5 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Bool",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4ff973db5f951e748c7057c2e1d4b9c8e9c87a16675d12929117b9ee65380111"
+}

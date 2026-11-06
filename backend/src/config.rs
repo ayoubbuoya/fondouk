@@ -24,6 +24,12 @@ const DEFAULT_AGENT_TICK_SECS: u64 = 600;
 /// Lowest accepted tick interval, so a typo cannot burn LLM credits.
 const MIN_AGENT_TICK_SECS: u64 = 60;
 
+/// NEAR RPC used when `NEAR_RPC_URL` is unset: FastNEAR's free testnet
+/// endpoint. The old `rpc.testnet.near.org` is deprecated (NEAR docs, RPC
+/// providers page, checked 6 Nov 2026). Testnet because the marketplace runs
+/// there, so users log in with testnet accounts.
+const DEFAULT_NEAR_RPC_URL: &str = "https://test.rpc.fastnear.com";
+
 /// Where the LLM lives (D17). `Debug` is written by hand so the API key is
 /// never printed.
 #[derive(Clone, PartialEq, Eq)]
@@ -68,6 +74,9 @@ pub struct Config {
     pub llm: Option<LlmConfig>,
     /// Time between two agent ticks (`AGENT_TICK_SECS`, default 10 minutes).
     pub agent_tick_interval: Duration,
+    /// NEAR JSON-RPC endpoint (`NEAR_RPC_URL`). Login uses it to check that
+    /// the signing key belongs to the account (D38).
+    pub near_rpc_url: String,
 }
 
 impl Config {
@@ -92,6 +101,7 @@ impl Config {
                 std::env::var("LLM_MODEL").ok(),
             )?,
             agent_tick_interval: parse_agent_tick(std::env::var("AGENT_TICK_SECS").ok())?,
+            near_rpc_url: parse_near_rpc_url(std::env::var("NEAR_RPC_URL").ok())?,
         })
     }
 }
@@ -105,6 +115,7 @@ impl std::fmt::Debug for Config {
             .field("village_stale_after", &self.village_stale_after)
             .field("llm", &self.llm)
             .field("agent_tick_interval", &self.agent_tick_interval)
+            .field("near_rpc_url", &self.near_rpc_url)
             .finish()
     }
 }
@@ -218,9 +229,33 @@ fn parse_agent_tick(value: Option<String>) -> Result<Duration> {
     Ok(Duration::from_secs(secs))
 }
 
+/// Parses `NEAR_RPC_URL`, falling back to the FastNEAR testnet endpoint.
+/// Only `http(s)://` URLs are accepted, so a typo fails at startup instead of
+/// at the first login.
+fn parse_near_rpc_url(value: Option<String>) -> Result<String> {
+    let raw = value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| DEFAULT_NEAR_RPC_URL.to_string());
+    if !(raw.starts_with("https://") || raw.starts_with("http://")) {
+        anyhow::bail!("NEAR_RPC_URL must start with https:// or http://, got {raw:?}");
+    }
+    Ok(raw)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn near_rpc_url_defaults_to_testnet_and_rejects_non_http() {
+        assert_eq!(parse_near_rpc_url(None).unwrap(), DEFAULT_NEAR_RPC_URL);
+        assert_eq!(
+            parse_near_rpc_url(Some(" https://rpc.mainnet.fastnear.com ".to_string())).unwrap(),
+            "https://rpc.mainnet.fastnear.com"
+        );
+        assert!(parse_near_rpc_url(Some("rpc.example".to_string())).is_err());
+    }
 
     #[test]
     fn uses_default_when_bind_addr_is_unset() {
@@ -260,6 +295,7 @@ mod tests {
                 model: "openai/gpt-4o-mini".to_string(),
             }),
             agent_tick_interval: Duration::from_secs(600),
+            near_rpc_url: DEFAULT_NEAR_RPC_URL.to_string(),
         };
 
         let printed = format!("{config:?}");
