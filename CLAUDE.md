@@ -12,7 +12,7 @@ The approval gate, plan-then-explain workflow, simplicity-first, and end-of-task
 
 Fondouk: an AI town on NEAR where each character is an LLM-driven DeFi agent that moves funds between real yield "villages" (Rhea pools), with an on-chain clone marketplace. Built for NEAR HACKATHON (1–14 Nov 2026, deadline 14 Nov 23:59 UTC).
 
-As of 4 Nov 2026 only `backend/` exists (axum + sqlx + Postgres): DefiLlama indexer for 4 villages (with full history import), `GET /health`, `GET /villages`, avatar and equity tables, a paper ledger, and a backtest engine with a mock decide (Day 2). No frontend or contracts yet. The DB design is in `dev-docs/2026-11-02/database-design.md`.
+As of 5 Nov 2026 only `backend/` exists (axum + sqlx + Postgres): DefiLlama indexer for 4 villages (with full history import), `GET /health`, `GET /villages`, avatar and equity tables, a paper ledger, a backtest engine (mock decide), risk guardrails, the LLM decide pipeline and an agent tick loop that logs decisions (Day 3). No frontend or contracts yet. The DB design is in `dev-docs/2026-11-02/database-design.md`.
 
 Read in this order: `docs/HANDOFF.md` (current state, decisions D1–D20, unknowns U1–U7, day plan) → `docs/SPEC.md` (features F1–F12, action set, guardrails) → `docs/TECH_architecture.md` (modules, schema, contracts).
 

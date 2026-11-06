@@ -18,6 +18,10 @@ const DAYS_PER_YEAR: i64 = 365;
 pub enum LedgerError {
     /// REBALANCE weights must add up to exactly 100 (SPEC §5).
     WeightsDoNotSumTo100 { sum: u32 },
+    /// MOVE `percent` must be 1 to 100 (SPEC §5).
+    InvalidPercent { percent: u8 },
+    /// MOVE from a village where the avatar holds nothing.
+    NoPosition { village_id: String },
     /// A result did not fit in a `Decimal` (about 7.9 × 10^28). Not reachable
     /// with real amounts; reported instead of panicking.
     Overflow,
@@ -27,6 +31,10 @@ impl fmt::Display for LedgerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::WeightsDoNotSumTo100 { sum } => write!(f, "weights sum to {sum}, expected 100"),
+            Self::InvalidPercent { percent } => {
+                write!(f, "percent {percent} is not between 1 and 100")
+            }
+            Self::NoPosition { village_id } => write!(f, "no money in village {village_id}"),
             Self::Overflow => write!(f, "amount too large for the ledger"),
         }
     }
@@ -114,6 +122,45 @@ impl Ledger {
         Ok(())
     }
 
+    /// Moves `percent`% of the money in village `from` to village `to` (MOVE).
+    ///
+    /// Cash is not a village (HANDOFF D27): cash is invested with REBALANCE.
+    /// At 100% the whole position moves, so no dust is left behind. Equity is
+    /// unchanged (costs come with the Day 4 cost model).
+    ///
+    /// Which targets are *allowed* is checked before this by the guardrails.
+    ///
+    /// # Errors
+    /// `InvalidPercent` or `NoPosition`; the ledger is unchanged.
+    pub fn move_percent(&mut self, from: &str, to: &str, percent: u8) -> Result<(), LedgerError> {
+        if !(1..=100).contains(&percent) {
+            return Err(LedgerError::InvalidPercent { percent });
+        }
+        let source = self.positions.get(from).copied().unwrap_or_default();
+        if source <= Decimal::ZERO {
+            return Err(LedgerError::NoPosition {
+                village_id: from.to_string(),
+            });
+        }
+        if from == to {
+            return Ok(()); // nothing changes; the guardrails refuse this anyway
+        }
+
+        let amount = if percent == 100 {
+            source
+        } else {
+            source * Decimal::from(percent) / Decimal::ONE_HUNDRED
+        };
+        let left = source - amount;
+        if left.is_zero() {
+            self.positions.remove(from);
+        } else {
+            self.positions.insert(from.to_string(), left);
+        }
+        *self.positions.entry(to.to_string()).or_default() += amount;
+        Ok(())
+    }
+
     /// Grows every position by one day of yield (HANDOFF D21):
     /// `value * (1 + apy/100)^(1/365)`. Cash earns nothing.
     ///
@@ -169,7 +216,10 @@ mod tests {
     }
 
     fn apys(pairs: &[(&str, &str)]) -> BTreeMap<String, Decimal> {
-        pairs.iter().map(|(id, apy)| (id.to_string(), d(apy))).collect()
+        pairs
+            .iter()
+            .map(|(id, apy)| (id.to_string(), d(apy)))
+            .collect()
     }
 
     /// True when `a` and `b` differ by at most one cent.
@@ -252,17 +302,25 @@ mod tests {
         ledger.rebalance(&weights(&[("lend-usdc", 100)])).unwrap();
 
         for _ in 0..365 {
-            ledger.accrue_one_day(&apys(&[("lend-usdc", "14")])).unwrap();
+            ledger
+                .accrue_one_day(&apys(&[("lend-usdc", "14")]))
+                .unwrap();
         }
 
-        assert!(within_a_cent(ledger.equity(), d("11400")), "{}", ledger.equity());
+        assert!(
+            within_a_cent(ledger.equity(), d("11400")),
+            "{}",
+            ledger.equity()
+        );
     }
 
     #[test]
     fn cash_does_not_earn_yield() {
         let mut ledger = Ledger::new(d("10000"));
 
-        ledger.accrue_one_day(&apys(&[("lend-usdc", "14")])).unwrap();
+        ledger
+            .accrue_one_day(&apys(&[("lend-usdc", "14")]))
+            .unwrap();
 
         assert_eq!(ledger.equity(), d("10000"));
     }
@@ -273,10 +331,16 @@ mod tests {
         with_gap.rebalance(&weights(&[("lend-usdc", 100)])).unwrap();
         let mut without_gap = with_gap.clone();
 
-        with_gap.accrue_one_day(&apys(&[("lend-usdc", "10")])).unwrap();
+        with_gap
+            .accrue_one_day(&apys(&[("lend-usdc", "10")]))
+            .unwrap();
         with_gap.accrue_one_day(&apys(&[])).unwrap(); // no data today
-        without_gap.accrue_one_day(&apys(&[("lend-usdc", "10")])).unwrap();
-        without_gap.accrue_one_day(&apys(&[("lend-usdc", "10")])).unwrap();
+        without_gap
+            .accrue_one_day(&apys(&[("lend-usdc", "10")]))
+            .unwrap();
+        without_gap
+            .accrue_one_day(&apys(&[("lend-usdc", "10")]))
+            .unwrap();
 
         assert_eq!(with_gap.equity(), without_gap.equity());
     }
@@ -289,6 +353,47 @@ mod tests {
         ledger.accrue_one_day(&apys(&[])).unwrap();
 
         assert_eq!(ledger.equity(), d("100"));
+    }
+
+    #[test]
+    fn move_percent_moves_part_of_one_village() {
+        let mut ledger = Ledger::new(d("1000"));
+        ledger.rebalance(&weights(&[("a", 100)])).unwrap();
+
+        ledger.move_percent("a", "b", 25).unwrap();
+
+        assert_eq!(ledger.positions()["a"], d("750"));
+        assert_eq!(ledger.positions()["b"], d("250"));
+        assert_eq!(ledger.equity(), d("1000"));
+    }
+
+    #[test]
+    fn move_100_percent_empties_the_source() {
+        let mut ledger = Ledger::new(d("100"));
+        ledger.rebalance(&weights(&[("a", 33), ("b", 67)])).unwrap();
+
+        ledger.move_percent("a", "b", 100).unwrap();
+
+        assert!(!ledger.positions().contains_key("a"));
+        assert_eq!(ledger.positions()["b"], d("100"));
+    }
+
+    #[test]
+    fn move_from_cash_or_an_empty_village_is_refused_and_ledger_is_unchanged() {
+        let mut ledger = Ledger::new(d("100"));
+        let before = ledger.clone();
+
+        assert_eq!(
+            ledger.move_percent("cash", "a", 50),
+            Err(LedgerError::NoPosition {
+                village_id: "cash".to_string()
+            })
+        );
+        assert_eq!(
+            ledger.move_percent("a", "b", 0),
+            Err(LedgerError::InvalidPercent { percent: 0 })
+        );
+        assert_eq!(ledger, before);
     }
 
     #[test]

@@ -37,7 +37,9 @@ impl Chart {
     /// The point with the latest timestamp.
     pub fn newest(&self) -> &YieldPoint {
         // `parse_chart` never builds an empty chart, so `last()` always exists.
-        self.points.last().expect("a parsed chart has at least one point")
+        self.points
+            .last()
+            .expect("a parsed chart has at least one point")
     }
 }
 

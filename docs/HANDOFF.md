@@ -1,6 +1,6 @@
 # Fondouk: Handoff
 
-Last updated: 4 Nov 2026. Update this file at the end of every work session.
+Last updated: 5 Nov 2026. Update this file at the end of every work session.
 
 This file is for anyone joining the project (teammates or a coding agent). Read it first, then `overview.md`, `SPEC.md`, `TECH_architecture.md`.
 
@@ -8,8 +8,8 @@ This file is for anyone joining the project (teammates or a coding agent). Read 
 
 ## 1. Current state
 
-- **Phase:** Day 1 and Day 2 backend done on 4 Nov (about 2 days behind the day plan in section 4, no scope cut). Next: Day 3, agent loop (prompt, LLM call, parse, guardrails) + vault spike.
-- **What runs today:** `backend/` (axum + sqlx + Postgres). DefiLlama indexer for the 4 villages (D13, D14), fetching every hour (D19); it stores the full chart, so about 45 days of history are imported (D22). `GET /health`, `GET /villages` (latest yield + stale flag). Tables for users, strategies, avatars and equity. Backtest engine (`backtest::run_for_avatar`) with a mock decision rule (all-in on the best APY) writes 30 `backtest` equity rows; no API triggers it yet. 99 tests pass. No frontend or contracts yet.
+- **Phase:** Day 1 to Day 3 backend done (Day 3 on 5 Nov, still about 2 days behind the day plan in section 4, no scope cut). Next: Day 4, sim ledger with saved positions + cost model (and the 2 cost-based guardrails, D28).
+- **What runs today:** `backend/` (axum + sqlx + Postgres). DefiLlama indexer for the 4 villages (D13, D14), fetching every hour (D19); it stores the full chart, so about 45 days of history are imported (D22). `GET /health`, `GET /villages` (latest yield + stale flag). Tables for users, strategies, avatars, equity, decisions and LLM cache. Guardrails (`agent::guardrails`, SPEC §6 minus the cost rules) checked on every action. LLM decision pipeline (`agent::decide`: prompt, OpenAI-compatible call, parse, retry once, HOLD, cache). Agent tick loop (`agent::tick`, every 10 min, only when `LLM_*` is set) logs one decision per active sim avatar in `decisions`, without moving money yet (D30). Backtest engine runs the guardrails and supports MOVE, but still uses the mock decision rule (all-in on the best APY, so only `high` risk avatars invest with it). 151 tests pass (the LLM is faked by a local test server). The real LLM call is **not tested yet** (no key, U5/U6). No frontend or contracts yet.
 - **Product code started:** 1 Nov 2026 (hackathon start).
 - **Deadline:** 14 Nov 2026, 23:59 UTC. Repo public + demo post on X + one submission.
 - **Team:** Ayoub (lead, full-stack, Rust and contracts), starting solo. Teammates join later.
@@ -49,6 +49,10 @@ The official page asks teams to build the project during the hackathon. We did n
 | D24 | (4 Nov) Re-running a backtest replaces the avatar's `backtest` equity rows in one transaction. Rejected: failing on the second run. | Safe re-runs, never half a track record. |
 | D25 | (4 Nov) `equity_snapshots.equity_usd` has `CHECK (equity_usd >= 0)` (migration 0004, now also in the design doc). Rejected: dropping it with a new migration. | Paper equity cannot go negative (no leverage or borrowing), so a negative value can only be a ledger bug. The DB rejects it loudly. |
 | D26 | (4 Nov) The `backend/.sqlx/` query cache is committed. Run `cargo sqlx prepare -- --all-targets` after changing any `query!` SQL. Rejected: keeping it ignored. | Teammates, CI and the deploy build can compile with `SQLX_OFFLINE=true` and no live database. |
+| D27 | (5 Nov) MOVE goes from village to village only. Cash is not a village and is invested only with REBALANCE. Rejected: `"cash"` as a pseudo-village in MOVE; investing cash automatically on the first tick. | No new concept: `Ledger::rebalance` already empties cash. |
+| D28 | (5 Nov) The 2 cost-based guardrails ("min APR gain after costs", "cost larger than 7 days of gain") are built on Day 4 with the cost model. | They need costs; writing a fake version now means writing them twice. |
+| D29 | (5 Nov) "Max percent moved per tick" is a share of **equity**, and counts only money taken **out of villages**. Investing cash does not count (it still counts for max share, and it starts the cooldown). | Otherwise a new low-risk avatar (25% per move, 6-tick cooldown) would sit mostly in cash for about 18 ticks, which is 18 of the 30 backtest days. |
+| D30 | (5 Nov) Day 3 tick loop only **logs** decisions (`decisions`, `source = 'sim'`). Positions and moving paper money live come on Day 4 with the `positions` table. | Keeps Day 3 small; the logged rows already meet the F4 acceptance. |
 
 ---
 
@@ -59,8 +63,8 @@ Do these before writing product code. Each one can change the plan.
 | # | Question | How to check | Result |
 | --- | --- | --- | --- |
 | U1 | DefiLlama yield history for Rhea pools: free? complete? | Call `/yields/pools`, filter for Rhea, then `/yields/chart/{pool}` | **Free, no key** (2 Nov). `https://yields.llama.fi/pools` lists 10 Rhea pools (`rhea-lend`, `rhea-dex`, `rhea-lst`). `https://yields.llama.fi/chart/{pool}` gives about 1 point per day (43 to 46 points since 18–21 Sep) plus a latest point refreshed during the day. Enough for a 30-day daily backtest. Values are **APY** (`apyBase`, `apyReward`). For lending pools, `tvlUsd` = supplied minus borrowed (available liquidity). Candidate villages: lend USDC `1a54c607-d829-5621-87a7-e3b7debc51a1` (TVL 1.6M, 14.0%), lend USDT `d4c96d26-5869-5771-90d5-08fd54e1455e` (1.6M, 13.1%), dex USDT-USDC-USDT.e-USDC.e `2fc37959-7f8b-5016-a18d-902ab72b0d4b` (104k, 8.1%), dex FRAX-USDC `94a8d511-c96e-5503-a81d-3357877d9c8a` (11.5k, 11.3%). Only 2 Rhea DEX pools are listed. |
-| U2 | Does Rhea have a testnet deployment? | https://guide.rhea.finance/ and https://github.com/rhea-finance | _todo_ |
-| U3 | Rhea Lend contract id and supply/withdraw flow when called from another contract | Rhea docs and contract source | _todo_ |
+| U2 | Does Rhea have a testnet deployment? | https://guide.rhea.finance/ and https://github.com/rhea-finance | **Partly answered (5 Nov, web research only).** Old Burrow testnet contracts exist (SDK samples use `contract.1689937928.burrow.testnet`, test tokens `usdc.fakes.testnet` / `usdt.fakes.testnet`; a third-party repo mentions `contract.burrow.testnet` with a mock oracle). None of them is an official, maintained testnet. **To check on Ayoub's machine** (this cloud container blocks NEAR RPC): `get_config` / `get_asset` on those ids with near-cli. If none works, real mode = mainnet with tiny caps (SPEC Q2). |
+| U3 | Rhea Lend contract id and supply/withdraw flow when called from another contract | Rhea docs and contract source | **Flow known, contract caller not proven (5 Nov).** Supply = `ft_transfer_call` on the **token** contract, `receiver_id` = `contract.main.burrow.near`, `msg: ""`, 1 yoctoNEAR. Plain supply earns interest (no `IncreaseCollateral` needed). Withdraw = `execute {"actions":[{"Withdraw":{"token_id":"<token>"}}]}` on Burrow with 1 yoctoNEAR (no amount = withdraw all); tokens come back to the caller with `ft_transfer`, limited by available liquidity. Before the first supply: `storage_deposit` on Burrow (README example 0.1 NEAR) and the vault must be registered on the token contract. No caller whitelist is documented, but the contract source was not read yet. Per-asset flags `can_deposit` / `can_withdraw` in `get_asset` config can block us. **Risk:** Rhea was exploited on 16 Apr 2026 (~$18.4M, margin trading slippage bug) and paused lending; a phased reopening from May was announced. Our indexer still saw moving APYs on 2 Nov, which suggests lending is live, but check `can_deposit` / `can_withdraw` on mainnet before Day 10. Sources: github.com/NearDeFi/burrowland (archived Jan 2023), github.com/burrowHQ/burrow-sdk-python, theblock.co post-mortem (17 Apr 2026). |
 | U4 | Rhea view methods to compute live APR and TVL | Rhea docs and source, test with near-api view calls | **Lending: solved** (2 Nov). Rhea Lend = `contract.main.burrow.near` (mainnet). `get_asset {"token_id": "<token>"}` returns `supply_apr` as a decimal string (`0.138` = 13.8% **APR**), `supplied.balance`, `borrowed.balance` and `farms[].rewards` (currently empty, so reward APR = 0). Balances use token decimals + `config.extra_decimals` (USDC/USDT: 6 + 12 = 18). `get_assets_paged` gives raw state **without** APR. Native USDC token = `17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1`, USDT = `usdt.tether-token.near`. **DEX pools: not solved on-chain.** Fee APR needs 24h volume, which a view call does not give. Use DefiLlama for DEX villages. |
 | U5 | Best model for strict JSON output | Test 2 to 3 models with the action schema: on OpenRouter first (dev, D17), then on NEAR AI Cloud (`https://cloud-api.near.ai/v1/model/list`) before the demo | _todo_ (needed for Day 3) |
 | U6 | async-openai works with the OpenRouter and NEAR AI Cloud base URLs | Small test program | _todo_ (needed for Day 3). Docs confirm a custom base URL is supported; not tested yet. |
@@ -139,7 +143,7 @@ cargo near build
 cargo test
 ```
 
-Environment variables. The first five are used today (see `backend/.env.example`); the rest are planned.
+Environment variables. The first five and the `LLM_*` / `AGENT_TICK_SECS` ones are used today (see `backend/.env.example`); the rest are planned.
 
 | Name | Purpose |
 | --- | --- |
@@ -148,13 +152,14 @@ Environment variables. The first five are used today (see `backend/.env.example`
 | `RUST_LOG` | Log level, e.g. `info,backend=debug` |
 | `INDEXER_INTERVAL_SECS` | Seconds between indexer rounds, default 3600, minimum 60 (D19) |
 | `VILLAGE_STALE_AFTER_SECS` | Stale threshold, default 2 x the interval, must be longer than it (D20) |
+| `AGENT_TICK_SECS` | Seconds between agent ticks, default 600, minimum 60 |
 | `NEAR_NETWORK` | `testnet` or `mainnet` |
 | `NEAR_RPC_URL` | RPC endpoint |
 | `OPERATOR_ACCOUNT_ID` | Account that owns the vault operator function-call key |
 | `OPERATOR_PRIVATE_KEY` | Function-call key only. Never a full-access key. |
 | `MARKETPLACE_CONTRACT_ID` | Deployed marketplace |
 | `VAULT_CONTRACT_ID` | Deployed vault |
-| `LLM_API_KEY` | Key for the provider at `LLM_BASE_URL` (OpenRouter in dev, NEAR AI Cloud for the demo) |
+| `LLM_API_KEY` | Key for the provider at `LLM_BASE_URL` (OpenRouter in dev, NEAR AI Cloud for the demo). `LLM_*`: set all three or none; none = agent loop off. |
 | `LLM_MODEL` | Model id for that provider (e.g. `openai/gpt-4o-mini` on OpenRouter) |
 | `LLM_BASE_URL` | Dev: `https://openrouter.ai/api/v1`. Demo: `https://cloud-api.near.ai/v1` (D17) |
 
@@ -181,6 +186,7 @@ Environment variables. The first five are used today (see `backend/.env.example`
 | 4 Nov 2026 | Ayoub + Claude | `GET /villages` with stale flag. All 38 tests pass (CREATEDB granted). Docs catch-up (stale rule wording, how to run). Day 1 done. | Day 2 plan (history import + backtest); review the cut order (2 days behind) |
 | 4 Nov 2026 | Ayoub + Claude | Day 2 done in 5 phases: full history import (D22), users / avatar_configs / avatars and equity_snapshots tables, daily history query (UTC days), paper ledger with exact APY compounding (D21, D23), SPEC action enum, mock decide, backtest engine (D24). 99 tests pass. SPEC F6.2 and TECH 5.3 now use the APY formula. | Day 3: agent loop + vault spike. Open: how actions treat cash (MOVE from cash?) |
 | 4 Nov 2026 | Ayoub + Claude | Day 2 close-out: kept `CHECK (equity_usd >= 0)` and documented it (D25); committed the `.sqlx/` query cache for offline builds (D26). | Day 3: agent loop + vault spike. Open: how actions treat cash |
+| 5 Nov 2026 | Ayoub + Claude | Day 3: guardrails (D27, D29) and MOVE in the backtest; LLM decide pipeline (async-openai 0.43.0, prompt, parse, retry once, HOLD, `llm_cache`); migration 0005 (`decisions`, `llm_cache`); agent tick loop that logs decisions (D30); cost rules moved to Day 4 (D28). Vault spike: U2 partly, U3 flow known (see section 3), Rhea April exploit noted. 151 tests pass. | Day 4: positions + cost model. Ayoub: add `LLM_*` to test a real model (U5, U6); run the U2/U3 near-cli checks. |
 
 ---
 

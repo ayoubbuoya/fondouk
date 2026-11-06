@@ -183,7 +183,9 @@ mod tests {
     async fn storing_a_chart_writes_every_point(pool: PgPool) {
         let points = [point(1, "13.1"), point(2, "13.4"), point(3, "14.0")];
 
-        let new_points = store_points(&pool, "rhea-lend-usdc", &points).await.unwrap();
+        let new_points = store_points(&pool, "rhea-lend-usdc", &points)
+            .await
+            .unwrap();
 
         assert_eq!(new_points, 3);
         assert_eq!(snapshot_count(&pool).await, 3);
@@ -192,11 +194,15 @@ mod tests {
     #[sqlx::test]
     async fn storing_the_same_chart_again_writes_only_new_points(pool: PgPool) {
         let first_round = [point(1, "13.1"), point(2, "13.4")];
-        store_points(&pool, "rhea-lend-usdc", &first_round).await.unwrap();
+        store_points(&pool, "rhea-lend-usdc", &first_round)
+            .await
+            .unwrap();
 
         // Next round: the chart now has one more day at the end.
         let second_round = [point(1, "13.1"), point(2, "13.4"), point(3, "14.0")];
-        let new_points = store_points(&pool, "rhea-lend-usdc", &second_round).await.unwrap();
+        let new_points = store_points(&pool, "rhea-lend-usdc", &second_round)
+            .await
+            .unwrap();
 
         assert_eq!(new_points, 1);
         assert_eq!(snapshot_count(&pool).await, 3);

@@ -164,7 +164,8 @@ mod tests {
     }
 
     fn utc(day: u32, hour: u32, minute: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 10, day, hour, minute, 0).unwrap()
+        Utc.with_ymd_and_hms(2026, 10, day, hour, minute, 0)
+            .unwrap()
     }
 
     async fn insert_all(pool: &PgPool, snapshots: &[YieldSnapshot]) {
@@ -180,7 +181,9 @@ mod tests {
         let evening = snapshot_at("rhea-lend-usdc", utc(10, 23, 0), "14.0");
         insert_all(&pool, &[noon, evening.clone(), morning]).await;
 
-        let history = daily_history(&pool, utc(1, 0, 0), utc(20, 0, 0)).await.unwrap();
+        let history = daily_history(&pool, utc(1, 0, 0), utc(20, 0, 0))
+            .await
+            .unwrap();
 
         assert_eq!(history, vec![evening]);
     }
@@ -193,7 +196,9 @@ mod tests {
         let early_next = snapshot_at("rhea-lend-usdc", utc(11, 0, 30), "14.0");
         insert_all(&pool, &[late.clone(), early_next.clone()]).await;
 
-        let history = daily_history(&pool, utc(1, 0, 0), utc(20, 0, 0)).await.unwrap();
+        let history = daily_history(&pool, utc(1, 0, 0), utc(20, 0, 0))
+            .await
+            .unwrap();
 
         assert_eq!(history, vec![late, early_next]);
     }
@@ -205,7 +210,9 @@ mod tests {
         let at_to = snapshot_at("rhea-lend-usdc", utc(12, 0, 0), "14.0");
         insert_all(&pool, &[before, at_from.clone(), at_to]).await;
 
-        let history = daily_history(&pool, utc(10, 0, 0), utc(12, 0, 0)).await.unwrap();
+        let history = daily_history(&pool, utc(10, 0, 0), utc(12, 0, 0))
+            .await
+            .unwrap();
 
         assert_eq!(history, vec![at_from]);
     }
@@ -216,14 +223,24 @@ mod tests {
         let usdc_day1 = snapshot_at("rhea-lend-usdc", utc(10, 12, 0), "13.0");
         let usdt_day1 = snapshot_at("rhea-lend-usdt", utc(10, 12, 0), "12.0");
         let inactive = snapshot_at("rhea-dex-frax-usdc", utc(10, 12, 0), "9.0");
-        insert_all(&pool, &[usdt_day1.clone(), usdc_day2.clone(), inactive, usdc_day1.clone()])
-            .await;
+        insert_all(
+            &pool,
+            &[
+                usdt_day1.clone(),
+                usdc_day2.clone(),
+                inactive,
+                usdc_day1.clone(),
+            ],
+        )
+        .await;
         sqlx::query!("UPDATE villages SET active = false WHERE id = 'rhea-dex-frax-usdc'")
             .execute(&pool)
             .await
             .unwrap();
 
-        let history = daily_history(&pool, utc(1, 0, 0), utc(20, 0, 0)).await.unwrap();
+        let history = daily_history(&pool, utc(1, 0, 0), utc(20, 0, 0))
+            .await
+            .unwrap();
 
         assert_eq!(history, vec![usdc_day1, usdc_day2, usdt_day1]);
     }

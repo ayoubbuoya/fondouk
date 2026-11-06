@@ -138,10 +138,15 @@ mod tests {
         let avatar = create_avatar(&pool).await;
         let points = [point(3, 10_020), point(1, 10_000), point(2, 10_010)];
 
-        replace_backtest_equity(&pool, avatar, &points).await.unwrap();
+        replace_backtest_equity(&pool, avatar, &points)
+            .await
+            .unwrap();
 
         let listed = list_equity(&pool, avatar, "backtest").await.unwrap();
-        assert_eq!(listed, vec![point(1, 10_000), point(2, 10_010), point(3, 10_020)]);
+        assert_eq!(
+            listed,
+            vec![point(1, 10_000), point(2, 10_010), point(3, 10_020)]
+        );
     }
 
     #[sqlx::test]
@@ -151,7 +156,9 @@ mod tests {
             .await
             .unwrap();
 
-        replace_backtest_equity(&pool, avatar, &[point(5, 50)]).await.unwrap();
+        replace_backtest_equity(&pool, avatar, &[point(5, 50)])
+            .await
+            .unwrap();
 
         let listed = list_equity(&pool, avatar, "backtest").await.unwrap();
         assert_eq!(listed, vec![point(5, 50)]);
@@ -162,10 +169,15 @@ mod tests {
         let avatar = create_avatar(&pool).await;
         insert_sim_point(&pool, avatar, &point(1, 9_999)).await;
 
-        replace_backtest_equity(&pool, avatar, &[point(1, 10_000)]).await.unwrap();
+        replace_backtest_equity(&pool, avatar, &[point(1, 10_000)])
+            .await
+            .unwrap();
 
         // Same ts, different source: both rows exist, and each list sees only its own.
-        assert_eq!(list_equity(&pool, avatar, "sim").await.unwrap(), vec![point(1, 9_999)]);
+        assert_eq!(
+            list_equity(&pool, avatar, "sim").await.unwrap(),
+            vec![point(1, 9_999)]
+        );
         assert_eq!(
             list_equity(&pool, avatar, "backtest").await.unwrap(),
             vec![point(1, 10_000)]
@@ -175,7 +187,9 @@ mod tests {
     #[sqlx::test]
     async fn a_failing_insert_rolls_back_the_delete(pool: PgPool) {
         let avatar = create_avatar(&pool).await;
-        replace_backtest_equity(&pool, avatar, &[point(1, 10_000)]).await.unwrap();
+        replace_backtest_equity(&pool, avatar, &[point(1, 10_000)])
+            .await
+            .unwrap();
 
         // Duplicate ts -> primary key violation on the second insert.
         let result = replace_backtest_equity(&pool, avatar, &[point(2, 1), point(2, 2)]).await;

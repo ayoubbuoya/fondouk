@@ -18,6 +18,35 @@ const DEFAULT_INDEXER_INTERVAL_SECS: u64 = 3600;
 /// as `INDEXER_INTERVAL_SECS=1`.
 const MIN_INDEXER_INTERVAL_SECS: u64 = 60;
 
+/// Agent tick interval when `AGENT_TICK_SECS` is unset: 10 minutes (SPEC §3).
+const DEFAULT_AGENT_TICK_SECS: u64 = 600;
+
+/// Lowest accepted tick interval, so a typo cannot burn LLM credits.
+const MIN_AGENT_TICK_SECS: u64 = 60;
+
+/// Where the LLM lives (D17). `Debug` is written by hand so the API key is
+/// never printed.
+#[derive(Clone, PartialEq, Eq)]
+pub struct LlmConfig {
+    /// OpenAI-compatible base URL (`LLM_BASE_URL`), e.g. OpenRouter in dev,
+    /// NEAR AI Cloud for the demo.
+    pub base_url: String,
+    /// `LLM_API_KEY`. Secret: never log it.
+    pub api_key: String,
+    /// `LLM_MODEL`, e.g. `openai/gpt-4o-mini`. Stored with every decision.
+    pub model: String,
+}
+
+impl std::fmt::Debug for LlmConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LlmConfig")
+            .field("base_url", &self.base_url)
+            .field("api_key", &"<redacted>")
+            .field("model", &self.model)
+            .finish()
+    }
+}
+
 /// All settings the backend needs to run.
 ///
 /// `Debug` is written by hand (below) so printing the config can never leak
@@ -34,6 +63,11 @@ pub struct Config {
     /// A village with no successful fetch for longer than this is stale
     /// (`VILLAGE_STALE_AFTER_SECS`, default 2 x the indexer interval).
     pub village_stale_after: Duration,
+    /// LLM settings, or `None` when none of the `LLM_*` variables are set:
+    /// the backend still runs (indexer, API), only the agent tick loop is off.
+    pub llm: Option<LlmConfig>,
+    /// Time between two agent ticks (`AGENT_TICK_SECS`, default 10 minutes).
+    pub agent_tick_interval: Duration,
 }
 
 impl Config {
@@ -52,6 +86,12 @@ impl Config {
                 std::env::var("VILLAGE_STALE_AFTER_SECS").ok(),
                 indexer_interval,
             )?,
+            llm: parse_llm(
+                std::env::var("LLM_BASE_URL").ok(),
+                std::env::var("LLM_API_KEY").ok(),
+                std::env::var("LLM_MODEL").ok(),
+            )?,
+            agent_tick_interval: parse_agent_tick(std::env::var("AGENT_TICK_SECS").ok())?,
         })
     }
 }
@@ -63,6 +103,8 @@ impl std::fmt::Debug for Config {
             .field("database_url", &"<redacted>")
             .field("indexer_interval", &self.indexer_interval)
             .field("village_stale_after", &self.village_stale_after)
+            .field("llm", &self.llm)
+            .field("agent_tick_interval", &self.agent_tick_interval)
             .finish()
     }
 }
@@ -127,6 +169,55 @@ fn parse_stale_after(value: Option<String>, indexer_interval: Duration) -> Resul
     Ok(stale_after)
 }
 
+/// The three `LLM_*` variables go together: all unset means "no LLM" (agent
+/// loop off), all set means "use it". A partial setup is an error, so a
+/// forgotten key fails at startup instead of silently disabling the agents.
+/// Values are never echoed in errors (the key is secret).
+fn parse_llm(
+    base_url: Option<String>,
+    api_key: Option<String>,
+    model: Option<String>,
+) -> Result<Option<LlmConfig>> {
+    let present = |value: &Option<String>| value.as_deref().is_some_and(|v| !v.trim().is_empty());
+    let missing: Vec<&str> = [
+        ("LLM_BASE_URL", present(&base_url)),
+        ("LLM_API_KEY", present(&api_key)),
+        ("LLM_MODEL", present(&model)),
+    ]
+    .into_iter()
+    .filter(|(_, is_set)| !is_set)
+    .map(|(name, _)| name)
+    .collect();
+
+    match missing.len() {
+        3 => Ok(None),
+        0 => Ok(Some(LlmConfig {
+            base_url: base_url.unwrap_or_default().trim().to_string(),
+            api_key: api_key.unwrap_or_default().trim().to_string(),
+            model: model.unwrap_or_default().trim().to_string(),
+        })),
+        _ => anyhow::bail!(
+            "LLM settings are incomplete, missing: {} (set all three or none)",
+            missing.join(", ")
+        ),
+    }
+}
+
+/// Parses `AGENT_TICK_SECS`. Default 10 minutes, minimum 60 s.
+fn parse_agent_tick(value: Option<String>) -> Result<Duration> {
+    let Some(raw) = value else {
+        return Ok(Duration::from_secs(DEFAULT_AGENT_TICK_SECS));
+    };
+    let secs: u64 = raw
+        .trim()
+        .parse()
+        .with_context(|| format!("AGENT_TICK_SECS must be whole seconds, got {raw:?}"))?;
+    if secs < MIN_AGENT_TICK_SECS {
+        anyhow::bail!("AGENT_TICK_SECS must be at least {MIN_AGENT_TICK_SECS}, got {secs}");
+    }
+    Ok(Duration::from_secs(secs))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,11 +254,18 @@ mod tests {
             database_url: "postgres://user:secret-pw@localhost/db".to_string(),
             indexer_interval: Duration::from_secs(3600),
             village_stale_after: Duration::from_secs(7200),
+            llm: Some(LlmConfig {
+                base_url: "https://openrouter.ai/api/v1".to_string(),
+                api_key: "sk-secret-key".to_string(),
+                model: "openai/gpt-4o-mini".to_string(),
+            }),
+            agent_tick_interval: Duration::from_secs(600),
         };
 
         let printed = format!("{config:?}");
 
         assert!(!printed.contains("secret-pw"));
+        assert!(!printed.contains("sk-secret-key"));
         assert!(printed.contains("<redacted>"));
     }
 
@@ -215,6 +313,43 @@ mod tests {
         assert_eq!(
             parse_stale_after(Some("5400".to_string()), HOUR).unwrap(),
             Duration::from_secs(5400)
+        );
+    }
+
+    fn some(value: &str) -> Option<String> {
+        Some(value.to_string())
+    }
+
+    #[test]
+    fn llm_is_off_when_no_variable_is_set() {
+        assert_eq!(parse_llm(None, None, None).unwrap(), None);
+        assert_eq!(parse_llm(some(""), some(" "), None).unwrap(), None);
+    }
+
+    #[test]
+    fn llm_is_on_when_all_three_are_set() {
+        let llm = parse_llm(some("https://x/v1"), some("key"), some("m"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(llm.model, "m");
+    }
+
+    #[test]
+    fn partial_llm_settings_name_the_missing_ones_but_not_the_key() {
+        let err = parse_llm(some("https://x/v1"), some("sk-secret"), None).unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("LLM_MODEL"));
+        assert!(!message.contains("sk-secret"));
+    }
+
+    #[test]
+    fn agent_tick_defaults_to_ten_minutes_and_has_a_minimum() {
+        assert_eq!(parse_agent_tick(None).unwrap(), Duration::from_secs(600));
+        assert!(parse_agent_tick(some("59")).is_err());
+        assert!(parse_agent_tick(some("10m")).is_err());
+        assert_eq!(
+            parse_agent_tick(some("60")).unwrap(),
+            Duration::from_secs(60)
         );
     }
 }

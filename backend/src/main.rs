@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use backend::{api, config::Config, db, indexer};
+use backend::{agent, api, config::Config, db, indexer};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tracing_subscriber::EnvFilter;
@@ -52,6 +52,21 @@ async fn main() -> Result<()> {
         shutdown_rx.clone(),
     ));
 
+    // The agent loop needs an LLM; without LLM_* settings the rest still runs.
+    let agent_task = match &config.llm {
+        Some(llm_config) => Some(tokio::spawn(agent::tick::run(
+            db_pool.clone(),
+            agent::llm::LlmClient::new(llm_config),
+            config.agent_tick_interval,
+            config.village_stale_after,
+            shutdown_rx.clone(),
+        ))),
+        None => {
+            tracing::warn!("LLM_* settings not set: agent loop is off (see backend/.env.example)");
+            None
+        }
+    };
+
     let listener = TcpListener::bind(config.bind_addr)
         .await
         .with_context(|| format!("could not listen on {}", config.bind_addr))?;
@@ -70,6 +85,12 @@ async fn main() -> Result<()> {
     // Let the indexer finish its current round before the process exits.
     if let Err(err) = indexer_task.await {
         tracing::error!("indexer task ended abnormally: {err}");
+    }
+    // Same for the agent loop: a tick in progress finishes its writes.
+    if let Some(task) = agent_task
+        && let Err(err) = task.await
+    {
+        tracing::error!("agent task ended abnormally: {err}");
     }
 
     tracing::info!("shut down cleanly");

@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH last_move AS (\n            SELECT max(id) AS id FROM decisions\n            WHERE avatar_id = $1 AND source = $2\n              AND applied_action->>'action' IN ('MOVE', 'REBALANCE')\n        )\n        SELECT (SELECT id FROM last_move) AS last_move_id,\n               (SELECT count(*) FROM decisions\n                WHERE avatar_id = $1 AND source = $2\n                  AND id > (SELECT id FROM last_move)) AS \"after!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "last_move_id",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "after!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "627e94ecebf9ad5699053671ed9bf9cbf3c2c263da7238ec926a74528a5aeece"
+}
