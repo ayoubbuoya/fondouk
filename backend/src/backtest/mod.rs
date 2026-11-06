@@ -305,6 +305,7 @@ fn backtest_decision_row(
         rejected_rule: decision.rejected_rule.clone(),
         reason_public: Some(decision.reason_public()),
         cost_usd: decision.cost_usd,
+        error_detail: decision.error_detail.clone(),
     })
 }
 

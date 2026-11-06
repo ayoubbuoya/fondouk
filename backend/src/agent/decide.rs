@@ -31,6 +31,19 @@ pub const LLM_ERROR: &str = "llm_error";
 /// LLM calls per decision: the first one plus one retry (SPEC F4, CLAUDE.md).
 const MAX_ATTEMPTS: usize = 2;
 
+/// Most characters kept in `Decision::error_detail`. Same limit as the DB
+/// CHECK on `decisions.error_detail` (migration 0009).
+pub const MAX_ERROR_DETAIL_CHARS: usize = 8000;
+
+/// Why the model gave no usable action after all attempts.
+#[derive(Debug, Clone, PartialEq)]
+struct ModelFailure {
+    /// `LLM_ERROR` or `PARSE_ERROR`, from the last attempt.
+    rule: &'static str,
+    /// One line per attempt, cut to `MAX_ERROR_DETAIL_CHARS`.
+    detail: String,
+}
+
 /// The outcome of one decision, ready to be stored in `decisions`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Decision {
@@ -45,6 +58,10 @@ pub struct Decision {
     pub rejected_rule: Option<String>,
     /// Estimated cost of `applied` in USD (`sim::costs`); 0 for HOLD and SAY.
     pub cost_usd: Decimal,
+    /// The exact error of each attempt when the model gave no usable action
+    /// (`llm_error` / `parse_error`); `None` otherwise. Internal only: stored
+    /// in the DB, never sent to the API or `/ws`. Never holds the model's text.
+    pub error_detail: Option<String>,
 }
 
 impl Decision {
@@ -77,9 +94,14 @@ pub async fn decide(
     let prompt = prompt::build(profile, state, ticks_since_last_move);
     let cache_key = sha256_hex(&[llm.model(), &prompt.system, &prompt.user]);
 
-    let proposal = match cached_action(pool, &cache_key).await {
-        Some(action) => Ok(action),
-        None => ask_model(llm, pool, &cache_key, &prompt).await,
+    // The detail is split off here so `check_proposal` stays a small pure
+    // step that only needs the rule name.
+    let (proposal, error_detail) = match cached_action(pool, &cache_key).await {
+        Some(action) => (Ok(action), None),
+        None => match ask_model(llm, pool, &cache_key, &prompt).await {
+            Ok(action) => (Ok(action), None),
+            Err(failure) => (Err(failure.rule), Some(failure.detail)),
+        },
     };
 
     let (proposed, applied, rejected_rule, cost_usd) =
@@ -91,6 +113,7 @@ pub async fn decide(
         applied,
         rejected_rule,
         cost_usd,
+        error_detail,
     }
 }
 
@@ -109,20 +132,24 @@ async fn cached_action(pool: &PgPool, cache_key: &str) -> Option<Action> {
 }
 
 /// Calls the model up to `MAX_ATTEMPTS` times until it returns a parseable
-/// action. Returns the rule name of the last failure otherwise.
+/// action. Otherwise returns the rule name of the last failure and the error
+/// of every attempt.
 async fn ask_model(
     llm: &LlmClient,
     pool: &PgPool,
     cache_key: &str,
     prompt: &prompt::Prompt,
-) -> Result<Action, &'static str> {
+) -> Result<Action, ModelFailure> {
     let mut last_failure = LLM_ERROR;
+    let mut attempt_errors: Vec<String> = Vec::with_capacity(MAX_ATTEMPTS);
     for attempt in 1..=MAX_ATTEMPTS {
         let text = match llm.complete(&prompt.system, &prompt.user).await {
             Ok(text) => text,
             Err(err) => {
-                // `{:#}` prints the cause chain; it never contains the prompt.
+                // `{:#}` prints the cause chain (e.g. the provider's 429
+                // message); it never contains the prompt.
                 tracing::warn!(attempt, "LLM call failed: {err:#}");
+                attempt_errors.push(format!("attempt {attempt}: LLM call failed: {err:#}"));
                 last_failure = LLM_ERROR;
                 continue;
             }
@@ -135,12 +162,26 @@ async fn ask_model(
                 return Ok(action);
             }
             Err(err) => {
+                // `err` describes the problem without the model text (see
+                // `parse_action`), so the persona cannot leak into the row.
                 tracing::warn!(attempt, "LLM answer is not a valid action: {err}");
+                attempt_errors.push(format!(
+                    "attempt {attempt}: LLM answer is not a valid action: {err}"
+                ));
                 last_failure = PARSE_ERROR;
             }
         }
     }
-    Err(last_failure)
+    Err(ModelFailure {
+        rule: last_failure,
+        detail: cut_chars(&attempt_errors.join("\n"), MAX_ERROR_DETAIL_CHARS),
+    })
+}
+
+/// The first `max` characters of `text`. Counts characters, not bytes, like
+/// Postgres `char_length`, and never splits a multi-byte character.
+fn cut_chars(text: &str, max: usize) -> String {
+    text.chars().take(max).collect()
 }
 
 /// Pure last step: runs the guardrails on a proposal and returns
@@ -332,6 +373,17 @@ mod tests {
         assert!(matches!(applied, Action::Hold { .. }));
         assert_eq!(rule.as_deref(), Some("parse_error"));
         assert_eq!(cost, Decimal::ZERO);
+    }
+
+    #[test]
+    fn error_detail_is_cut_to_the_database_limit_by_characters() {
+        // "é" is 2 bytes: cutting by bytes would split it or keep too few.
+        let long = "é".repeat(MAX_ERROR_DETAIL_CHARS + 10);
+
+        let cut = cut_chars(&long, MAX_ERROR_DETAIL_CHARS);
+
+        assert_eq!(cut.chars().count(), MAX_ERROR_DETAIL_CHARS);
+        assert_eq!(cut_chars("short", MAX_ERROR_DETAIL_CHARS), "short");
     }
 
     #[test]

@@ -179,6 +179,8 @@ async fn tick_avatar(
         rejected_rule: decision.rejected_rule.clone(),
         reason_public: Some(decision.reason_public()),
         cost_usd: decision.cost_usd,
+        // Stored only; the `LiveEvent` below deliberately leaves it out.
+        error_detail: decision.error_detail.clone(),
     };
     let mut tx = pool.begin().await?;
     positions::replace_positions(&mut tx, avatar.id, ledger.positions()).await?;
@@ -473,6 +475,7 @@ mod tests {
                 assert_eq!(row.model, "fake-model");
                 assert_eq!(row.applied_action["action"], "HOLD");
                 assert_eq!(row.reason_public.as_deref(), Some("Yields are flat."));
+                assert_eq!(row.error_detail, None);
             }
         }
         // Same input on ticks 2 and 3: answered from the cache, so one call
@@ -497,6 +500,19 @@ mod tests {
         assert_eq!(row.rejected_rule.as_deref(), Some("parse_error"));
         assert_eq!(row.proposed_action, None);
         assert_eq!(row.applied_action["action"], "HOLD");
+        // Both attempts are explained, without the model's own words.
+        let detail = row
+            .error_detail
+            .expect("parse_error keeps the error detail");
+        assert!(
+            detail.contains("attempt 1: LLM answer is not a valid action"),
+            "{detail}"
+        );
+        assert!(
+            detail.contains("attempt 2: LLM answer is not a valid action"),
+            "{detail}"
+        );
+        assert!(!detail.contains("holding is wise"), "{detail}");
     }
 
     #[sqlx::test]
@@ -512,6 +528,10 @@ mod tests {
 
         let row = only_decision(&pool, avatar).await;
         assert_eq!(row.rejected_rule.as_deref(), Some("llm_error"));
+        // The exact error of each attempt is kept, not only the label.
+        let detail = row.error_detail.expect("llm_error keeps the error detail");
+        assert!(detail.contains("attempt 1: LLM call failed"), "{detail}");
+        assert!(detail.contains("attempt 2: LLM call failed"), "{detail}");
     }
 
     #[sqlx::test]

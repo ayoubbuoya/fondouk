@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, avatar_id, ts, source, input_hash, model, proposed_action, applied_action,\n               valid, rejected_rule, reason_public, cost_usd\n        FROM decisions\n        WHERE avatar_id = $1 AND source = $2\n        ORDER BY ts DESC, id DESC\n        LIMIT $3\n        ",
+  "query": "\n        SELECT id, avatar_id, ts, source, input_hash, model, proposed_action, applied_action,\n               valid, rejected_rule, reason_public, cost_usd, error_detail\n        FROM decisions\n        WHERE avatar_id = $1 AND source = $2\n        ORDER BY ts DESC, id DESC\n        LIMIT $3\n        ",
   "describe": {
     "columns": [
       {
@@ -134,6 +134,17 @@
             "name": "cost_usd"
           }
         }
+      },
+      {
+        "ordinal": 12,
+        "name": "error_detail",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "decisions",
+            "name": "error_detail"
+          }
+        }
       }
     ],
     "parameters": {
@@ -155,8 +166,9 @@
       false,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "378514c1494adb908570f572f0cbf24eb3844b43808a08c9541e3068f1b9ffce"
+  "hash": "00b14c036dcdede65b969193239e7fad20dfce38a4801edd2fc4cc0c05fe2c1d"
 }

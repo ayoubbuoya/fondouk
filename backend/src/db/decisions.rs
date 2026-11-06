@@ -25,6 +25,9 @@ pub struct NewDecision {
     /// Public, at most 140 characters (DB CHECK).
     pub reason_public: Option<String>,
     pub cost_usd: Decimal,
+    /// Exact LLM / parse error per attempt; internal only, at most 8000
+    /// characters (DB CHECK, migration 0009).
+    pub error_detail: Option<String>,
 }
 
 /// A stored decision, as read back.
@@ -42,6 +45,8 @@ pub struct DecisionRow {
     pub rejected_rule: Option<String>,
     pub reason_public: Option<String>,
     pub cost_usd: Decimal,
+    /// Internal only: the API's `DecisionDto` deliberately leaves it out.
+    pub error_detail: Option<String>,
 }
 
 /// Inserts one decision and returns its id.
@@ -55,8 +60,9 @@ pub async fn insert_decision<'e>(
     sqlx::query_scalar!(
         r#"
         INSERT INTO decisions (avatar_id, ts, source, input_hash, model, proposed_action,
-                               applied_action, valid, rejected_rule, reason_public, cost_usd)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                               applied_action, valid, rejected_rule, reason_public, cost_usd,
+                               error_detail)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING id
         "#,
         decision.avatar_id,
@@ -70,6 +76,7 @@ pub async fn insert_decision<'e>(
         decision.rejected_rule,
         decision.reason_public,
         decision.cost_usd,
+        decision.error_detail,
     )
     .fetch_one(executor)
     .await
@@ -136,7 +143,7 @@ pub async fn list_decisions(
         DecisionRow,
         r#"
         SELECT id, avatar_id, ts, source, input_hash, model, proposed_action, applied_action,
-               valid, rejected_rule, reason_public, cost_usd
+               valid, rejected_rule, reason_public, cost_usd, error_detail
         FROM decisions
         WHERE avatar_id = $1 AND source = $2
         ORDER BY ts DESC, id DESC
@@ -198,6 +205,7 @@ mod tests {
             rejected_rule: rejected_rule.map(str::to_string),
             reason_public: Some("r".to_string()),
             cost_usd: Decimal::ZERO,
+            error_detail: None,
         }
     }
 
@@ -227,6 +235,21 @@ mod tests {
         long.reason_public = Some("a".repeat(141));
 
         assert!(insert_decision(&pool, &long).await.is_err());
+    }
+
+    #[sqlx::test]
+    async fn error_detail_is_stored_up_to_8000_characters(pool: PgPool) {
+        let avatar = create_avatar(&pool).await;
+        let mut failed = decision(avatar, "HOLD", Some("llm_error"));
+        failed.error_detail = Some("a".repeat(8000));
+        insert_decision(&pool, &failed).await.unwrap();
+
+        let rows = list_decisions(&pool, avatar, "sim", 10).await.unwrap();
+        assert_eq!(rows[0].error_detail.as_deref().map(str::len), Some(8000));
+
+        let mut too_long = decision(avatar, "HOLD", Some("llm_error"));
+        too_long.error_detail = Some("a".repeat(8001));
+        assert!(insert_decision(&pool, &too_long).await.is_err());
     }
 
     #[sqlx::test]
