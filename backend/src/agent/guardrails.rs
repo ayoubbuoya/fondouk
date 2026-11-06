@@ -5,9 +5,10 @@
 //! yes or which rule says no. A rejected action becomes HOLD in the caller,
 //! and the rule name is stored in `decisions.rejected_rule`.
 //!
-//! Not here yet (HANDOFF D28): the two cost-based rules ("min APR gain after
-//! costs" and "cost larger than 7 days of gain"). They need the cost model,
-//! which arrives on Day 4.
+//! The last checks are the cost rules (HANDOFF D28, D32). They use the cost
+//! model (`sim::costs`) and measure the gain on **the money that moves**: the
+//! APY where it goes minus the APY where it comes from (cash and villages
+//! without a quote today count as 0%).
 
 use std::fmt;
 use std::str::FromStr;
@@ -15,9 +16,19 @@ use std::str::FromStr;
 use rust_decimal::Decimal;
 
 use super::{Action, MarketState};
+use crate::sim::costs::{self, Flows, Source};
 
 /// Max length of the public `reason` (SPEC §5, F4.3), in characters.
 pub const MAX_REASON_CHARS: usize = 140;
+
+/// "Min APR gain after costs" spreads the cost over this many days before
+/// annualizing it (HANDOFF D32): the same window as the backtest.
+pub const GAIN_HORIZON_DAYS: u32 = 30;
+
+/// "Cost larger than 7 days of the expected gain" is refused (SPEC §6).
+pub const PAYBACK_DAYS: u32 = 7;
+
+const DAYS_PER_YEAR: u32 = 365;
 
 /// The avatar's risk level, chosen at creation and stored in
 /// `avatar_configs.risk`.
@@ -52,6 +63,8 @@ pub struct RiskLimits {
     pub cooldown_ticks: u32,
     /// Max share of equity one village may hold after the action, in percent.
     pub max_share_percent: u8,
+    /// Min APY gain of the moved money after costs, in percentage points.
+    pub min_gain_points: Decimal,
 }
 
 impl Risk {
@@ -63,12 +76,14 @@ impl Risk {
                 max_percent_moved: 25,
                 cooldown_ticks: 6,
                 max_share_percent: 60,
+                min_gain_points: Decimal::new(15, 1), // 1.5
             },
             Self::Medium => RiskLimits {
                 allowed_kinds: &["lending", "stable_lp"],
                 max_percent_moved: 50,
                 cooldown_ticks: 3,
                 max_share_percent: 80,
+                min_gain_points: Decimal::ONE,
             },
             // "All": today that is the same two kinds; a new kind (e.g.
             // volatile LP) would be added here only.
@@ -77,6 +92,7 @@ impl Risk {
                 max_percent_moved: 100,
                 cooldown_ticks: 1,
                 max_share_percent: 100,
+                min_gain_points: Decimal::new(5, 1), // 0.5
             },
         }
     }
@@ -106,6 +122,12 @@ pub enum RejectedRule {
     Cooldown,
     /// One village would hold more than the max share.
     MaxShare,
+    /// A needed stablecoin swap cannot be done (swap pool stale or no route).
+    NoSwapRoute,
+    /// The APY gain after costs is below the risk level's minimum.
+    MinGain,
+    /// The cost is larger than 7 days of the expected gain.
+    CostTooHigh,
 }
 
 impl RejectedRule {
@@ -121,6 +143,9 @@ impl RejectedRule {
             Self::MaxMove => "max_move",
             Self::Cooldown => "cooldown",
             Self::MaxShare => "max_share",
+            Self::NoSwapRoute => "no_swap_route",
+            Self::MinGain => "min_gain",
+            Self::CostTooHigh => "cost_too_high",
         }
     }
 }
@@ -141,10 +166,24 @@ impl fmt::Display for RejectedRule {
 ///
 /// HOLD and SAY only need a valid reason: they never move money.
 ///
+/// Returns the estimated cost of the action in USD (0 for HOLD and SAY), so
+/// the caller applies and stores the same number that was checked.
+///
 /// # Errors
 /// The first rule that fails, in this order: field limits, villages, cooldown,
-/// max move, max share.
+/// max move, max share, swap route, min gain, cost too high.
 pub fn check(
+    action: &Action,
+    state: &MarketState,
+    risk: Risk,
+    ticks_since_last_move: Option<u32>,
+) -> Result<Decimal, RejectedRule> {
+    check_limits(action, state, risk, ticks_since_last_move)?;
+    check_costs(&costs::flows_of(action, state), state, &risk.limits())
+}
+
+/// Every rule except the cost rules.
+fn check_limits(
     action: &Action,
     state: &MarketState,
     risk: Risk,
@@ -282,6 +321,69 @@ fn equity(state: &MarketState) -> Decimal {
     state.cash_usd + state.positions.values().copied().sum::<Decimal>()
 }
 
+/// The cost rules (SPEC §6, HANDOFF D28, D32). Returns the estimated cost.
+///
+/// With `moved` the money that moves, `cost` its estimated cost and `gain`
+/// its APY gain in points:
+/// - min gain: `gain - cost / moved × 100 × 365 / 30 >= min_gain_points`
+///   (the cost is spread over 30 days, then annualized);
+/// - cost too high: refused when `cost > moved × gain / 100 × 7 / 365`
+///   (the move must pay for itself within 7 days).
+///
+/// Both are written with multiplications only, so nothing divides by zero.
+/// When nothing moves (HOLD, SAY, a rebalance to the current weights) the
+/// cost is 0 and both rules pass.
+fn check_costs(
+    flows: &Flows,
+    state: &MarketState,
+    limits: &RiskLimits,
+) -> Result<Decimal, RejectedRule> {
+    let moved = flows.moved();
+    if moved <= Decimal::ZERO {
+        return Ok(Decimal::ZERO);
+    }
+    let cost = costs::estimate(flows, state).map_err(|_| RejectedRule::NoSwapRoute)?;
+    let gain = gain_points(flows, state);
+    let per_year = Decimal::from(DAYS_PER_YEAR);
+
+    // gain - cost×100×365 / (moved×30) >= min, times moved×30 (> 0):
+    let horizon = Decimal::from(GAIN_HORIZON_DAYS);
+    if (gain - limits.min_gain_points) * moved * horizon < cost * Decimal::ONE_HUNDRED * per_year {
+        return Err(RejectedRule::MinGain);
+    }
+    // cost > moved × gain/100 × 7/365, times 100×365:
+    if cost * Decimal::ONE_HUNDRED * per_year > moved * gain * Decimal::from(PAYBACK_DAYS) {
+        return Err(RejectedRule::CostTooHigh);
+    }
+    Ok(cost)
+}
+
+/// APY gain of the moved money, in points: the amount-weighted APY of the
+/// targets minus that of the sources. `flows.moved()` must be > 0.
+fn gain_points(flows: &Flows, state: &MarketState) -> Decimal {
+    let apy = |village_id: &str| {
+        state
+            .villages
+            .iter()
+            .find(|quote| quote.village_id == village_id)
+            .map_or(Decimal::ZERO, |quote| quote.apy)
+    };
+    let earned_after: Decimal = flows
+        .targets
+        .iter()
+        .map(|(village_id, amount)| *amount * apy(village_id))
+        .sum();
+    let earned_before: Decimal = flows
+        .sources
+        .iter()
+        .map(|(source, amount)| match source {
+            Source::Cash => Decimal::ZERO,
+            Source::Village(village_id) => *amount * apy(village_id),
+        })
+        .sum();
+    (earned_after - earned_before) / flows.moved()
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -295,23 +397,37 @@ mod tests {
         Decimal::from_str_exact(value).unwrap()
     }
 
-    fn quote(village_id: &str, kind: &str) -> VillageQuote {
+    /// The rule checks of the tests below, without the returned cost.
+    fn check(
+        action: &Action,
+        state: &MarketState,
+        risk: Risk,
+        ticks_since_last_move: Option<u32>,
+    ) -> Result<(), RejectedRule> {
+        super::check(action, state, risk, ticks_since_last_move).map(|_cost| ())
+    }
+
+    fn quote(village_id: &str, kind: &str, apy: &str) -> VillageQuote {
         VillageQuote {
             village_id: village_id.to_string(),
             kind: kind.to_string(),
-            apy: d("10"),
+            apy: d(apy),
             tvl_usd: d("1000000"),
+            fee_bps: 0,
+            tokens: vec!["USDC".to_string()],
         }
     }
 
-    /// Villages: two lending ("lend-a", "lend-b") and one stable LP ("lp").
+    /// Villages: two lending ("lend-a" 5%, "lend-b" 10%) and one stable LP
+    /// ("lp" 10%). Moving from lend-a to lend-b gains 5 points, so the cost
+    /// rules pass and each test sees the rule it is about.
     fn state(cash: &str, positions: &[(&str, &str)]) -> MarketState {
         MarketState {
             day: NaiveDate::from_ymd_opt(2026, 10, 10).unwrap(),
             villages: vec![
-                quote("lend-a", "lending"),
-                quote("lend-b", "lending"),
-                quote("lp", "stable_lp"),
+                quote("lend-a", "lending", "5"),
+                quote("lend-b", "lending", "10"),
+                quote("lp", "stable_lp", "10"),
             ],
             cash_usd: d(cash),
             positions: positions
@@ -503,7 +619,8 @@ mod tests {
 
     #[test]
     fn cooldown_counts_ticks_since_the_last_move() {
-        let s = state("0", &[("lend-a", "100"), ("lend-b", "100")]);
+        // Large amounts, so the gas of a 10% move is small next to its gain.
+        let s = state("0", &[("lend-a", "10000"), ("lend-b", "10000")]);
         let small_move = move_action("lend-a", "lend-b", 10);
 
         // Low: 6 ticks.
@@ -693,5 +810,154 @@ mod tests {
             "village_unavailable"
         );
         assert_eq!(RejectedRule::MaxShare.to_string(), "max_share");
+        assert_eq!(RejectedRule::NoSwapRoute.as_str(), "no_swap_route");
+        assert_eq!(RejectedRule::MinGain.as_str(), "min_gain");
+        assert_eq!(RejectedRule::CostTooHigh.as_str(), "cost_too_high");
+    }
+
+    // ---- cost rules ----
+
+    /// 10 000 in "lend-a" (5%) and an "up" village paying `up_apy`.
+    fn with_target(up_apy: &str) -> MarketState {
+        MarketState {
+            day: NaiveDate::from_ymd_opt(2026, 10, 10).unwrap(),
+            villages: vec![
+                quote("lend-a", "lending", "5"),
+                quote("up", "lending", up_apy),
+            ],
+            cash_usd: Decimal::ZERO,
+            positions: BTreeMap::from([("lend-a".to_string(), d("10000"))]),
+        }
+    }
+
+    #[test]
+    fn min_gain_depends_on_the_risk_level() {
+        // +0.8 points on 10 000; the 0.04 of gas is about 0.005 points.
+        let s = with_target("5.8");
+        let all_up = move_action("lend-a", "up", 100);
+
+        assert_eq!(
+            check(&all_up, &s, Risk::Low, RESTED),
+            Err(RejectedRule::MaxMove) // low risk may not move 100% anyway
+        );
+        let quarter = move_action("lend-a", "up", 25);
+        assert_eq!(
+            check(&quarter, &s, Risk::Low, RESTED),
+            Err(RejectedRule::MinGain) // needs 1.5
+        );
+        assert_eq!(
+            check(&all_up, &s, Risk::Medium, RESTED),
+            Err(RejectedRule::MaxMove)
+        );
+        let half = move_action("lend-a", "up", 50);
+        assert_eq!(
+            check(&half, &s, Risk::Medium, RESTED),
+            Err(RejectedRule::MinGain) // needs 1.0
+        );
+        assert_eq!(check(&all_up, &s, Risk::High, RESTED), Ok(())); // needs 0.5
+    }
+
+    #[test]
+    fn a_move_to_a_lower_or_equal_yield_is_refused() {
+        let s = with_target("5");
+
+        assert_eq!(
+            check(&move_action("lend-a", "up", 100), &s, Risk::High, RESTED),
+            Err(RejectedRule::MinGain)
+        );
+    }
+
+    #[test]
+    fn cost_too_high_when_the_move_does_not_pay_back_in_7_days() {
+        // 10 000 of cash into an LP paying 10% with TVL 250 000:
+        // slippage 10 000 × 0.1 × 10 000 / 250 000 = 40, + 0.02 gas.
+        // Min gain passes (cost over 30 days ≈ 4.9 points < 10 - 0.5),
+        // but 7 days of gain is only 10 000 × 10% × 7/365 ≈ 19.18 < 40.02.
+        let mut lp = quote("lp", "stable_lp", "10");
+        lp.tvl_usd = d("250000");
+        let s = MarketState {
+            day: NaiveDate::from_ymd_opt(2026, 10, 10).unwrap(),
+            villages: vec![lp],
+            cash_usd: d("10000"),
+            positions: BTreeMap::new(),
+        };
+
+        assert_eq!(
+            check(&rebalance(&[("lp", 100)]), &s, Risk::High, None),
+            Err(RejectedRule::CostTooHigh)
+        );
+    }
+
+    #[test]
+    fn check_returns_the_cost_it_checked() {
+        let s = state("1000", &[]);
+
+        // Two entries into lending villages: 2 × 0.02 gas.
+        let cost = super::check(
+            &rebalance(&[("lend-a", 50), ("lend-b", 50)]),
+            &s,
+            Risk::Low,
+            None,
+        );
+
+        assert_eq!(cost, Ok(d("0.04")));
+        assert_eq!(
+            super::check(&hold("x"), &s, Risk::Low, None),
+            Ok(Decimal::ZERO)
+        );
+    }
+
+    #[test]
+    fn a_needed_swap_without_the_swap_pool_is_refused() {
+        // USDT lending -> USDC lending needs a swap, and the swap pool is
+        // not listed today.
+        let mut usdt = quote("rhea-lend-usdt", "lending", "5");
+        usdt.tokens = vec!["USDT".to_string()];
+        let usdc = quote("rhea-lend-usdc", "lending", "10");
+        let s = MarketState {
+            day: NaiveDate::from_ymd_opt(2026, 10, 10).unwrap(),
+            villages: vec![usdt, usdc],
+            cash_usd: Decimal::ZERO,
+            positions: BTreeMap::from([("rhea-lend-usdt".to_string(), d("10000"))]),
+        };
+
+        assert_eq!(
+            check(
+                &move_action("rhea-lend-usdt", "rhea-lend-usdc", 100),
+                &s,
+                Risk::High,
+                RESTED
+            ),
+            Err(RejectedRule::NoSwapRoute)
+        );
+    }
+
+    #[test]
+    fn plan_example_2_all_cash_into_the_tiny_frax_pool_is_refused() {
+        // About 868 of cost on 10 000 at 9%: far below any minimum gain.
+        let frax = VillageQuote {
+            village_id: "rhea-dex-frax-usdc".to_string(),
+            kind: "stable_lp".to_string(),
+            apy: d("9"),
+            tvl_usd: d("11551"),
+            fee_bps: 2,
+            tokens: vec!["FRAX".to_string(), "USDC".to_string()],
+        };
+        let s = MarketState {
+            day: NaiveDate::from_ymd_opt(2026, 10, 10).unwrap(),
+            villages: vec![frax],
+            cash_usd: d("10000"),
+            positions: BTreeMap::new(),
+        };
+
+        assert_eq!(
+            check(
+                &rebalance(&[("rhea-dex-frax-usdc", 100)]),
+                &s,
+                Risk::High,
+                None
+            ),
+            Err(RejectedRule::MinGain)
+        );
     }
 }

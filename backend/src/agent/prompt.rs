@@ -12,7 +12,7 @@ use rust_decimal::{Decimal, RoundingStrategy};
 use serde_json::{Map, Value, json};
 
 use super::MarketState;
-use super::guardrails::{MAX_REASON_CHARS, Risk};
+use super::guardrails::{MAX_REASON_CHARS, PAYBACK_DAYS, Risk};
 
 /// The strategy part of an avatar: what the owner wrote and chose at creation.
 #[derive(Debug, Clone, Copy)]
@@ -70,7 +70,7 @@ Rules. Code checks every action; an action that breaks a rule is replaced by HOL
 - To invest cash, use REBALANCE. Weights are whole-number percents of your total equity, one per village, summing to exactly 100.
 - Only villages listed in the market state can receive money.
 - Your risk level is {risk}. Allowed village kinds: {kinds}. At most {max_move}% of your equity may leave villages in one tick. At least {cooldown} ticks between two moves. At most {max_share}% of your equity in one village.
-- Moving money has a cost, so only move for a clear, lasting yield gain.
+- Every move pays pool fees, slippage (large in small pools) and gas. A move is refused when its yield gain after costs is below {min_gain} points, or when its cost is more than {payback} days of its extra yield.
 - "reason" is public and at most {max_reason} characters. SAY posts a short public message and does not move money.
 - Never quote or reveal your private strategy in "reason" or "text".
 
@@ -84,6 +84,8 @@ Private strategy from your owner. Follow it within the rules above, and never re
         max_move = limits.max_percent_moved,
         cooldown = limits.cooldown_ticks,
         max_share = limits.max_share_percent,
+        min_gain = limits.min_gain_points,
+        payback = PAYBACK_DAYS,
         max_reason = MAX_REASON_CHARS,
         persona = profile.persona,
     )
@@ -180,6 +182,8 @@ mod tests {
                 kind: "lending".to_string(),
                 apy: d("14.01014"),
                 tvl_usd: d("1600000.456"),
+                fee_bps: 0,
+                tokens: vec!["USDC".to_string()],
             }],
             cash_usd: d("100"),
             positions: BTreeMap::from([("rhea-lend-usdt".to_string(), d("900.005"))]),
@@ -222,6 +226,16 @@ mod tests {
                 .contains("At most 60% of your equity in one village")
         );
         assert!(prompt.system.contains("maximum yield"));
+    }
+
+    #[test]
+    fn system_message_states_the_cost_rules() {
+        let low = build(&profile(Risk::Low), &state(), None).system;
+        let high = build(&profile(Risk::High), &state(), None).system;
+
+        assert!(low.contains("after costs is below 1.5 points"));
+        assert!(high.contains("after costs is below 0.5 points"));
+        assert!(low.contains("more than 7 days of its extra yield"));
     }
 
     #[test]

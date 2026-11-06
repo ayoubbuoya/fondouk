@@ -5,7 +5,7 @@
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgPool;
+use sqlx::{PgExecutor, PgPool};
 use uuid::Uuid;
 
 /// Input for a new strategy (`avatar_configs` row). Rows are never updated (Q-B).
@@ -109,6 +109,31 @@ pub async fn insert_avatar(pool: &PgPool, avatar: &NewAvatar) -> sqlx::Result<Uu
     )
     .fetch_one(pool)
     .await
+}
+
+/// Sets the avatar's cash (live sim, after a tick changed its ledger).
+///
+/// Takes any executor, so the live tick can run it inside its transaction.
+///
+/// # Errors
+/// CHECK violation for a negative amount; `sqlx::Error::RowNotFound` when no
+/// avatar has this id.
+pub async fn update_cash<'e>(
+    executor: impl PgExecutor<'e>,
+    avatar_id: Uuid,
+    cash_usd: Decimal,
+) -> sqlx::Result<()> {
+    let result = sqlx::query!(
+        "UPDATE avatars SET cash_usd = $2 WHERE id = $1",
+        avatar_id,
+        cash_usd,
+    )
+    .execute(executor)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(sqlx::Error::RowNotFound);
+    }
+    Ok(())
 }
 
 /// Loads a character and its strategy, or `None` when the id is unknown.
@@ -315,5 +340,29 @@ mod tests {
         .unwrap_err();
 
         assert!(is_check_violation(&err), "{err}");
+    }
+
+    #[sqlx::test]
+    async fn update_cash_sets_the_cash_and_refuses_negative_amounts(pool: PgPool) {
+        let config_id = setup_config(&pool).await;
+        let avatar = insert_avatar(&pool, &new_avatar(config_id, 1_000))
+            .await
+            .unwrap();
+
+        update_cash(&pool, avatar, Decimal::ZERO).await.unwrap();
+        let err = update_cash(&pool, avatar, Decimal::NEGATIVE_ONE)
+            .await
+            .unwrap_err();
+
+        let stored = get_avatar_with_config(&pool, avatar)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.cash_usd, Decimal::ZERO);
+        assert!(is_check_violation(&err), "{err}");
+        assert!(matches!(
+            update_cash(&pool, Uuid::nil(), Decimal::ONE).await,
+            Err(sqlx::Error::RowNotFound)
+        ));
     }
 }

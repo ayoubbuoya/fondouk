@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use sqlx::PgPool;
+use sqlx::{PgExecutor, PgPool};
 use uuid::Uuid;
 
 /// One equity value of an avatar at a point in time.
@@ -54,6 +54,48 @@ pub async fn replace_backtest_equity(
     // If any step above returned early with `?`, `tx` is dropped without a
     // commit and sqlx rolls it back.
     tx.commit().await
+}
+
+/// Stores one equity point for `source` (`sim` or `real`; the backtest uses
+/// `replace_backtest_equity`).
+///
+/// Takes any executor, so the live tick can run it inside its transaction.
+///
+/// # Errors
+/// Primary key violation when the avatar already has a point at `point.ts`
+/// for this source; CHECK violation for a negative equity or unknown source.
+pub async fn insert_equity_point<'e>(
+    executor: impl PgExecutor<'e>,
+    avatar_id: Uuid,
+    source: &str,
+    point: &EquityPoint,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        "INSERT INTO equity_snapshots (avatar_id, source, ts, equity_usd) VALUES ($1, $2, $3, $4)",
+        avatar_id,
+        source,
+        point.ts,
+        point.equity_usd,
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Time of the avatar's newest equity point for `source`, or `None` when it
+/// has none yet. The live tick accrues yield for the time since then (D33).
+pub async fn last_equity_ts(
+    pool: &PgPool,
+    avatar_id: Uuid,
+    source: &str,
+) -> sqlx::Result<Option<DateTime<Utc>>> {
+    sqlx::query_scalar!(
+        "SELECT max(ts) FROM equity_snapshots WHERE avatar_id = $1 AND source = $2",
+        avatar_id,
+        source,
+    )
+    .fetch_one(pool)
+    .await
 }
 
 /// Returns the avatar's equity points for one `source` (`backtest`, `sim` or
@@ -211,6 +253,41 @@ mod tests {
             .unwrap_err();
 
         assert!(err.as_database_error().unwrap().is_check_violation());
+    }
+
+    #[sqlx::test]
+    async fn last_equity_ts_is_the_newest_point_of_that_source(pool: PgPool) {
+        let avatar = create_avatar(&pool).await;
+        assert_eq!(last_equity_ts(&pool, avatar, "sim").await.unwrap(), None);
+
+        insert_equity_point(&pool, avatar, "sim", &point(2, 10_010))
+            .await
+            .unwrap();
+        insert_equity_point(&pool, avatar, "sim", &point(1, 10_000))
+            .await
+            .unwrap();
+        replace_backtest_equity(&pool, avatar, &[point(9, 1)])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            last_equity_ts(&pool, avatar, "sim").await.unwrap(),
+            Some(point(2, 0).ts)
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_second_point_at_the_same_time_is_rejected(pool: PgPool) {
+        let avatar = create_avatar(&pool).await;
+        insert_equity_point(&pool, avatar, "sim", &point(1, 10_000))
+            .await
+            .unwrap();
+
+        let err = insert_equity_point(&pool, avatar, "sim", &point(1, 10_001))
+            .await
+            .unwrap_err();
+
+        assert!(err.as_database_error().unwrap().is_unique_violation());
     }
 
     #[sqlx::test]

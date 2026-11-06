@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE villages SET tokens = '{}' WHERE id = 'rhea-lend-usdc'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "b08ed83786167cf25ca35f52863ff4606508a19fcb36daec63db82e7c180ce11"
+}

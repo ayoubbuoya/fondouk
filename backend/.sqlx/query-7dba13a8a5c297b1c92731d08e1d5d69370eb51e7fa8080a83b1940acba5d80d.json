@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT village_id, value_usd FROM positions WHERE avatar_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "village_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "positions",
+            "name": "village_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "value_usd",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "positions",
+            "name": "value_usd"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "7dba13a8a5c297b1c92731d08e1d5d69370eb51e7fa8080a83b1940acba5d80d"
+}

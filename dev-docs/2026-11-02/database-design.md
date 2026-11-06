@@ -65,7 +65,7 @@ yield_snapshots (                          -- was apr_snapshots; values are APY 
 
 - The indexer fetches on a configurable interval (**default 1 hour**, D19) and inserts with `ON CONFLICT DO NOTHING`, so only new source points are stored.
 - The same table holds the 30-day history import used by the backtest (same source, same unit).
-- `fee_bps` (pool fee for the cost model, F6.3) is added on Day 4 with the cost model, once the real pool fees are verified. It is not guessed now.
+- `villages.fee_bps` (pool fee in basis points) and `villages.tokens` (accepted tokens, e.g. `{USDC}`) were added on Day 4 (migration 0006, HANDOFF D31) for the cost model (F6.3). Fees were checked on-chain on 6 Nov 2026: Rhea pools 4179 (stable4) and 4514 (FRAX-USDC) charge 2 bps, Rhea Lend charges none. `tokens` must not be empty (CHECK).
 
 ### 2.2 Characters (Day 2 to 4)
 
@@ -105,7 +105,7 @@ avatars (                                  -- "the character" that runs a strate
 positions (
   avatar_id  UUID NOT NULL REFERENCES avatars(id),
   village_id TEXT NOT NULL REFERENCES villages(id),
-  value_usd  NUMERIC NOT NULL CHECK (value_usd >= 0),
+  value_usd  NUMERIC NOT NULL CHECK (value_usd > 0),   -- empty positions are deleted (Day 4)
   PRIMARY KEY (avatar_id, village_id)
 )
 ```
@@ -229,8 +229,8 @@ Deliberately left out: a `ticks` table (`ts` is enough), persona encryption at r
 | When | Migration |
 | --- | --- |
 | Phase 2 (Day 1) | `villages`, `yield_snapshots`, seed of the 4 villages (D14) |
-| Day 2 to 4 | `users`, `avatar_configs`, `avatars`, `positions`, `decisions`, `equity_snapshots`, `llm_cache` |
-| Day 4 | `villages.fee_bps` (verified pool fees) |
+| Day 2 to 3 | `users`, `avatar_configs`, `avatars`, `decisions`, `equity_snapshots`, `llm_cache` |
+| Day 4 | `positions`, `villages.fee_bps` + `villages.tokens` (verified pool fees, migration 0006) |
 | Day 5 | `auth_challenges`, `sessions` |
 | Day 9 | `clones`, `watcher_cursor` |
 | Day 10 | Real-mode accounting (to be designed) |

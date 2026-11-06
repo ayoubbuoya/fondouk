@@ -4,7 +4,7 @@
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{PgExecutor, PgPool};
 use uuid::Uuid;
 
 /// A decision to store. `valid` is derived from `rejected_rule` (the table
@@ -45,7 +45,13 @@ pub struct DecisionRow {
 }
 
 /// Inserts one decision and returns its id.
-pub async fn insert_decision(pool: &PgPool, decision: &NewDecision) -> sqlx::Result<i64> {
+///
+/// Takes any executor (`&PgPool`, or `&mut *tx` inside the live tick's
+/// transaction).
+pub async fn insert_decision<'e>(
+    executor: impl PgExecutor<'e>,
+    decision: &NewDecision,
+) -> sqlx::Result<i64> {
     sqlx::query_scalar!(
         r#"
         INSERT INTO decisions (avatar_id, ts, source, input_hash, model, proposed_action,
@@ -65,7 +71,7 @@ pub async fn insert_decision(pool: &PgPool, decision: &NewDecision) -> sqlx::Res
         decision.reason_public,
         decision.cost_usd,
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await
 }
 

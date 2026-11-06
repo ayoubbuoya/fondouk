@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, name, kind, protocol, asset, pool_ref, map_x, map_y, active, last_fetched_at\n        FROM villages\n        WHERE active\n        ORDER BY id\n        ",
+  "query": "\n        SELECT id, name, kind, protocol, asset, pool_ref, map_x, map_y, active, last_fetched_at,\n               fee_bps, tokens\n        FROM villages\n        WHERE active\n        ORDER BY id\n        ",
   "describe": {
     "columns": [
       {
@@ -112,6 +112,28 @@
             "name": "last_fetched_at"
           }
         }
+      },
+      {
+        "ordinal": 10,
+        "name": "fee_bps",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "villages",
+            "name": "fee_bps"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "tokens",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "villages",
+            "name": "tokens"
+          }
+        }
       }
     ],
     "parameters": {
@@ -127,8 +149,10 @@
       false,
       false,
       false,
-      true
+      true,
+      false,
+      false
     ]
   },
-  "hash": "6b995bb12e8680f40539e8b999654cd3611acd919b3bca273c4a010a0c9cf565"
+  "hash": "3c68f5cbad3102ed0dc8388c8e792561d595d46fae3df6313b73defee391d4eb"
 }

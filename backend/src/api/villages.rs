@@ -118,6 +118,8 @@ mod tests {
             map_y: 100,
             active: true,
             last_fetched_at,
+            fee_bps: 0,
+            tokens: vec!["USDC".to_string()],
         }
     }
 

@@ -18,6 +18,8 @@ use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
+use crate::db::villages::Village;
+
 /// The fixed action set (SPEC §5). JSON looks like
 /// `{"action": "MOVE", "from": "...", "to": "...", "percent": 25, "reason": "..."}`.
 ///
@@ -57,6 +59,29 @@ pub struct VillageQuote {
     /// Total APY in percent: base + reward.
     pub apy: Decimal,
     pub tvl_usd: Decimal,
+    /// Pool fee in basis points (1 bps = 0.01%) paid to enter or leave the
+    /// village; 0 for lending (`villages.fee_bps`).
+    pub fee_bps: u32,
+    /// Tokens the village accepts, e.g. `["USDC"]` (`villages.tokens`). The
+    /// cost model adds a swap when money arrives in a token not listed here.
+    pub tokens: Vec<String>,
+}
+
+impl VillageQuote {
+    /// The quote for `village` with today's `apy` (base + reward, percent)
+    /// and TVL. Used by the live tick and the backtest, so both see the same
+    /// fee and token data.
+    pub fn new(village: &Village, apy: Decimal, tvl_usd: Decimal) -> Self {
+        Self {
+            village_id: village.id.clone(),
+            kind: village.kind.clone(),
+            apy,
+            tvl_usd,
+            // The DB CHECK keeps fee_bps in 0..=10000, so this never falls back.
+            fee_bps: u32::try_from(village.fee_bps).unwrap_or(0),
+            tokens: village.tokens.clone(),
+        }
+    }
 }
 
 /// Everything a decision may look at for one day (backtest) or tick (live).
@@ -119,6 +144,8 @@ mod tests {
             kind: "lending".to_string(),
             apy: d(apy),
             tvl_usd: d("1000000"),
+            fee_bps: 0,
+            tokens: vec!["USDC".to_string()],
         }
     }
 

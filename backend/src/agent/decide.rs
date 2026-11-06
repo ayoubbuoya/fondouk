@@ -12,6 +12,7 @@
 //! `Decision` says why.
 
 use anyhow::Result;
+use rust_decimal::Decimal;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -42,6 +43,8 @@ pub struct Decision {
     pub applied: Action,
     /// `None` when the proposal was applied as is.
     pub rejected_rule: Option<String>,
+    /// Estimated cost of `applied` in USD (`sim::costs`); 0 for HOLD and SAY.
+    pub cost_usd: Decimal,
 }
 
 impl Decision {
@@ -79,7 +82,7 @@ pub async fn decide(
         None => ask_model(llm, pool, &cache_key, &prompt).await,
     };
 
-    let (proposed, applied, rejected_rule) =
+    let (proposed, applied, rejected_rule, cost_usd) =
         check_proposal(proposal, state, profile.risk, ticks_since_last_move);
     Decision {
         input_hash: sha256_hex(&[&prompt.user]),
@@ -87,6 +90,7 @@ pub async fn decide(
         proposed,
         applied,
         rejected_rule,
+        cost_usd,
     }
 }
 
@@ -140,20 +144,31 @@ async fn ask_model(
 }
 
 /// Pure last step: runs the guardrails on a proposal and returns
-/// `(proposed, applied, rejected_rule)`. A failure becomes HOLD.
+/// `(proposed, applied, rejected_rule, cost_usd)`. A failure becomes HOLD
+/// with no cost.
 pub fn check_proposal(
     proposal: Result<Action, &'static str>,
     state: &MarketState,
     risk: Risk,
     ticks_since_last_move: Option<u32>,
-) -> (Option<Action>, Action, Option<String>) {
+) -> (Option<Action>, Action, Option<String>, Decimal) {
     match proposal {
-        Err(failure) => (None, hold(failure), Some(failure.to_string())),
+        Err(failure) => (
+            None,
+            hold(failure),
+            Some(failure.to_string()),
+            Decimal::ZERO,
+        ),
         Ok(action) => match guardrails::check(&action, state, risk, ticks_since_last_move) {
-            Ok(()) => (Some(action.clone()), action, None),
+            Ok(cost_usd) => (Some(action.clone()), action, None, cost_usd),
             Err(rule) => {
                 let rule = rule.as_str();
-                (Some(action), hold(rule), Some(rule.to_string()))
+                (
+                    Some(action),
+                    hold(rule),
+                    Some(rule.to_string()),
+                    Decimal::ZERO,
+                )
             }
         },
     }
@@ -223,12 +238,16 @@ mod tests {
                     kind: "lending".to_string(),
                     apy: Decimal::TEN,
                     tvl_usd: Decimal::from(1_000_000),
+                    fee_bps: 0,
+                    tokens: vec!["USDC".to_string()],
                 },
                 VillageQuote {
                     village_id: "b".to_string(),
                     kind: "lending".to_string(),
                     apy: Decimal::from(12),
                     tvl_usd: Decimal::from(1_000_000),
+                    fee_bps: 0,
+                    tokens: vec!["USDC".to_string()],
                 },
             ],
             cash_usd: Decimal::from(1000),
@@ -278,12 +297,14 @@ mod tests {
             reason: "split".to_string(),
         };
 
-        let (proposed, applied, rule) =
+        let (proposed, applied, rule, cost) =
             check_proposal(Ok(rebalance.clone()), &state(), Risk::Low, None);
 
         assert_eq!(proposed, Some(rebalance.clone()));
         assert_eq!(applied, rebalance);
         assert_eq!(rule, None);
+        // Cash into two USDC lending villages: 2 × 0.02 of gas.
+        assert_eq!(cost, Decimal::new(4, 2));
     }
 
     #[test]
@@ -293,21 +314,24 @@ mod tests {
             reason: "all in".to_string(),
         };
 
-        let (proposed, applied, rule) =
+        let (proposed, applied, rule, cost) =
             check_proposal(Ok(all_in.clone()), &state(), Risk::Low, None);
 
         assert_eq!(proposed, Some(all_in));
         assert!(matches!(applied, Action::Hold { .. }));
         assert_eq!(rule.as_deref(), Some("max_share"));
+        assert_eq!(cost, Decimal::ZERO);
     }
 
     #[test]
     fn no_usable_answer_becomes_hold_without_a_proposal() {
-        let (proposed, applied, rule) = check_proposal(Err(PARSE_ERROR), &state(), Risk::Low, None);
+        let (proposed, applied, rule, cost) =
+            check_proposal(Err(PARSE_ERROR), &state(), Risk::Low, None);
 
         assert_eq!(proposed, None);
         assert!(matches!(applied, Action::Hold { .. }));
         assert_eq!(rule.as_deref(), Some("parse_error"));
+        assert_eq!(cost, Decimal::ZERO);
     }
 
     #[test]

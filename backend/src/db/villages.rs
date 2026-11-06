@@ -19,6 +19,10 @@ pub struct Village {
     pub active: bool,
     /// Last successful indexer fetch; `None` until the first fetch.
     pub last_fetched_at: Option<DateTime<Utc>>,
+    /// Pool fee in basis points (0 for lending), used by the cost model.
+    pub fee_bps: i32,
+    /// Tokens the village accepts, e.g. `["USDC"]`, used by the cost model.
+    pub tokens: Vec<String>,
 }
 
 /// Returns all active villages, ordered by id so callers get a stable order.
@@ -26,7 +30,8 @@ pub async fn list_active_villages(pool: &PgPool) -> sqlx::Result<Vec<Village>> {
     sqlx::query_as!(
         Village,
         r#"
-        SELECT id, name, kind, protocol, asset, pool_ref, map_x, map_y, active, last_fetched_at
+        SELECT id, name, kind, protocol, asset, pool_ref, map_x, map_y, active, last_fetched_at,
+               fee_bps, tokens
         FROM villages
         WHERE active
         ORDER BY id
@@ -120,6 +125,33 @@ mod tests {
             ]
         );
         assert!(villages.iter().all(|v| v.last_fetched_at.is_none()));
+    }
+
+    #[sqlx::test]
+    async fn seed_has_the_cost_data_checked_on_chain(pool: PgPool) {
+        let villages = list_active_villages(&pool).await.unwrap();
+        let by_id = |id: &str| villages.iter().find(|v| v.id == id).unwrap();
+
+        assert_eq!(by_id("rhea-lend-usdc").fee_bps, 0);
+        assert_eq!(by_id("rhea-lend-usdc").tokens, ["USDC"]);
+        assert_eq!(by_id("rhea-lend-usdt").tokens, ["USDT"]);
+        assert_eq!(by_id("rhea-dex-stable4").fee_bps, 2);
+        assert_eq!(
+            by_id("rhea-dex-stable4").tokens,
+            ["USDT", "USDC", "USDT.e", "USDC.e"]
+        );
+        assert_eq!(by_id("rhea-dex-frax-usdc").fee_bps, 2);
+        assert_eq!(by_id("rhea-dex-frax-usdc").tokens, ["FRAX", "USDC"]);
+    }
+
+    #[sqlx::test]
+    async fn a_village_without_tokens_is_rejected(pool: PgPool) {
+        let err = sqlx::query!("UPDATE villages SET tokens = '{}' WHERE id = 'rhea-lend-usdc'")
+            .execute(&pool)
+            .await
+            .unwrap_err();
+
+        assert!(err.as_database_error().unwrap().is_check_violation());
     }
 
     #[sqlx::test]
