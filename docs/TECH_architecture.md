@@ -167,10 +167,10 @@ fondouk/
 - Broadcast new APRs over WebSocket.
 
 ### 5.2 backtest (optional, P2, D51)
-- **Optional:** no other module depends on it. Today it runs with the mock decision rule and is not shown in the UI; switching it to the LLM (D35) is on hold. The design below applies if it is finished.
+- **Built with the LLM (D63):** `POST /avatars` runs it with the live `agent::decide` and the persona; the create wizard shows it. No other module depends on it.
 - Input: character config, list of villages, 7 days of history (D60).
 - For each day: build market state from history, call the same `decide()` function as live, apply guardrails, apply the cost model, accrue yield for one day.
-- Output: 7 rows in `equity_snapshots` with `source = 'backtest'`.
+- Output: 7 rows in `equity_snapshots` and 7 in `decisions`, both with `source = 'backtest'`, replaced together in one transaction.
 - LLM budget: max 7 calls per character. Cache by (persona hash, market state hash).
 
 ### 5.3 sim
@@ -202,7 +202,7 @@ fondouk/
 REST (built on Day 5 unless marked planned). The browser reaches these paths with an `/api` prefix that the proxy removes (D47):
 - `GET /villages`, `GET /villages/{id}/history?days=7` (1–30)
 - `GET /avatars?owner=`, `GET /avatars/{id}`, `GET /avatars/{id}/decisions?source=&limit=` (newest first, limit ≤ 100), `GET /avatars/{id}/equity?source=` (`source` is required: backtest, sim and real are never mixed)
-- `POST /avatars` (logged in; create + run the optional mock backtest, kept for now but not shown in the UI, D51; `backtest: null` if it fails, D41; `mode: real` is 400 until Day 10, D42), `PATCH /avatars/{id}` (owner only: name, sprite, active, persona → new config row; no persona edit on clones, D40)
+- `POST /avatars` (logged in, max 3 avatars per account; creates the avatar **paused** and runs the LLM backtest, D63; `backtest: null` if no LLM is configured or it fails, D41; `mode: real` is 400 until Day 10, D42), `PATCH /avatars/{id}` (owner only: name, sprite, active, persona → new config row; no persona edit on clones, D40)
 - `POST /auth/challenge`, `POST /auth/near` (NEP-413, D38), `POST /auth/logout`, `GET /auth/me`. Session = HttpOnly `SameSite=Lax` cookie, so the frontend must reach the REST API same-origin (Vite proxy in dev, Vercel rewrite in prod, D37).
 - planned: `GET /leaderboard?window=7d|30d&tab=main|new` (Day 11), `GET /arena/feed` (Day 12)
 

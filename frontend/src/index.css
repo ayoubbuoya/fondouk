@@ -366,3 +366,82 @@ button.link img {
 .decision-rejected {
   color: #ffd27a;
 }
+
+/* ---- create-avatar wizard (F3, D63) ---- */
+
+.badge-backtest {
+  background: #5a4a7a;
+  color: #ece3ff;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form input,
+.form select,
+.form textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.form textarea {
+  resize: vertical;
+}
+
+.form fieldset {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.form legend {
+  margin-bottom: 4px;
+  padding: 0;
+}
+
+.sprite-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sprite-option {
+  padding: 3px;
+  border-color: var(--border);
+}
+
+.sprite-option img {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.sprite-option.selected {
+  border-color: var(--accent);
+  background: rgba(224, 176, 79, 0.15);
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+button.secondary {
+  border-color: var(--border);
+  color: var(--text);
+}

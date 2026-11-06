@@ -6,7 +6,7 @@
 //! | `GET /avatars/{id}` | anyone | + risk, goal, cash, positions; persona only to its creator (D39) |
 //! | `GET /avatars/{id}/decisions?source=&limit=` | anyone | newest first, one source |
 //! | `GET /avatars/{id}/equity?source=` | anyone | oldest first, one source |
-//! | `POST /avatars` | logged in | create + run the backtest (F3.3) |
+//! | `POST /avatars` | logged in | create paused + run the LLM backtest (D63), max 3 per account |
 //! | `PATCH /avatars/{id}` | owner | name, sprite, active, persona (D40) |
 //!
 //! **Persona privacy (D7, D39).** Only `AvatarDetailDto::persona` can carry
@@ -48,6 +48,9 @@ pub const SPRITES: [&str; 8] = [
     "ninja_blue",
 ];
 const MAX_PERSONA_CHARS: usize = 2000;
+/// Avatars one account may own (clones included) before `POST /avatars`
+/// refuses (Ayoub, D63). Each create costs up to 14 LLM calls.
+const MAX_AVATARS_PER_ACCOUNT: i64 = 3;
 const RISKS: [&str; 3] = ["low", "medium", "high"];
 const GOALS: [&str; 3] = ["steady_income", "max_yield", "protect_capital"];
 /// Sim starting capital options in USD (Q-E).
@@ -237,11 +240,17 @@ pub async fn list_equity(
 }
 
 /// `POST /avatars`: creates the strategy and the avatar in one transaction,
-/// then runs the 7-day backtest (F3.3) before answering.
+/// then runs the 7-day LLM backtest with the persona (D63) before answering.
 ///
-/// The backtest runs after the commit: it reads the avatar back through the
-/// pool. If it fails (e.g. no history yet), the avatar is kept and
-/// `backtest` is `null` (D41).
+/// The avatar starts **paused** (`active = false`): the tick loop skips it
+/// until the owner reads the backtest and sends `PATCH {"active": true}`.
+/// At most `MAX_AVATARS_PER_ACCOUNT` per account (clones count), because
+/// every create spends LLM calls on the operator's key.
+///
+/// The backtest runs after the commit, so no transaction stays open during
+/// the LLM calls (up to ~7 × 2 calls, can take a while). `backtest` is
+/// `null` when no LLM is configured or the backtest fails (e.g. no history
+/// yet); the avatar is kept either way (D41).
 pub async fn create_avatar(
     State(state): State<AppState>,
     user: AuthUser,
@@ -251,6 +260,14 @@ pub async fn create_avatar(
 
     // The user row exists: the session that authenticated `user` references it.
     let mut tx = state.db.begin().await?;
+    // Locks the user row: a second create of the same account waits here
+    // until this transaction ends, so both cannot pass the limit together.
+    let owned = avatars::lock_owner_and_count_avatars(&mut tx, &user.account_id).await?;
+    if owned >= MAX_AVATARS_PER_ACCOUNT {
+        return Err(ApiError::BadRequest(format!(
+            "avatar limit reached: at most {MAX_AVATARS_PER_ACCOUNT} per account"
+        )));
+    }
     let config_id = avatars::insert_config(
         &mut *tx,
         &NewConfig {
@@ -270,18 +287,25 @@ pub async fn create_avatar(
             sprite: valid.sprite,
             mode: valid.mode,
             starting_capital_usd: Decimal::from(valid.starting_capital_usd),
+            active: false,
         },
     )
     .await?;
     tx.commit().await?;
-    tracing::info!(avatar = %id, owner = %user.account_id, "avatar created");
+    tracing::info!(avatar = %id, owner = %user.account_id, "avatar created (paused)");
 
-    let backtest = match backtest::run_for_avatar(&state.db, id, Utc::now()).await {
-        Ok(points) => Some(points.into_iter().map(equity_dto).collect()),
-        Err(err) => {
-            tracing::warn!(avatar = %id, "backtest on create failed: {err:#}");
+    let backtest = match &state.llm {
+        None => {
+            tracing::warn!(avatar = %id, "no LLM configured: no backtest on create");
             None
         }
+        Some(llm) => match backtest::run_for_avatar(&state.db, llm, id, Utc::now()).await {
+            Ok(points) => Some(points.into_iter().map(equity_dto).collect()),
+            Err(err) => {
+                tracing::warn!(avatar = %id, "backtest on create failed: {err:#}");
+                None
+            }
+        },
     };
     let avatar = load_avatar(&state, id).await?;
     let body = CreatedAvatarDto {
@@ -487,6 +511,7 @@ mod tests {
     use crate::api::near_rpc::tests::full_access_answer;
     use crate::api::router;
     use crate::api::tests::{json, request, send};
+    use crate::backtest::tests::{FakeLlm, HOLD_ANSWER, fake_llm};
     use crate::db::{villages, yield_snapshots};
     use chrono::Days;
     use serde_json::json;
@@ -641,35 +666,144 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
-    #[sqlx::test]
-    async fn create_stores_the_avatar_and_its_backtest(pool: PgPool) {
-        seed_history(&pool).await;
-        let state = state_with_rpc(pool.clone(), full_access_answer()).await;
-        let cookie = login_cookie(&state, "alice.testnet").await;
+    /// Logged-in test state whose LLM is a fake server answering HOLD.
+    async fn state_with_llm(pool: PgPool) -> (AppState, FakeLlm) {
+        let llm = fake_llm(HOLD_ANSWER).await;
+        let state = AppState {
+            llm: Some(llm.client.clone()),
+            ..state_with_rpc(pool, full_access_answer()).await
+        };
+        (state, llm)
+    }
 
+    async fn post_create(state: &AppState, cookie: &str) -> (StatusCode, Value) {
         let (status, _, body) = send(
             router(state.clone()),
-            request("POST", "/avatars", Some(&cookie), Some(create_body())),
+            request("POST", "/avatars", Some(cookie), Some(create_body())),
         )
         .await;
+        (status, serde_json::from_slice(&body).unwrap_or(Value::Null))
+    }
 
-        assert_eq!(status, StatusCode::CREATED);
-        let body = json(&body);
+    #[sqlx::test]
+    async fn create_stores_a_paused_avatar_and_its_llm_backtest(pool: PgPool) {
+        seed_history(&pool).await;
+        let (state, llm) = state_with_llm(pool.clone()).await;
+        let cookie = login_cookie(&state, "alice.testnet").await;
+
+        let (status, body) = post_create(&state, &cookie).await;
+
+        assert_eq!(status, StatusCode::CREATED, "{body}");
         assert_eq!(body["avatar"]["name"], "Hanna");
         assert_eq!(body["avatar"]["owner"], "alice.testnet");
         assert_eq!(body["avatar"]["cash_usd"], "10000");
         assert_eq!(body["avatar"]["persona"], PERSONA, "creator sees it");
+        // D63: paused until the owner presses Start.
+        assert_eq!(body["avatar"]["active"], false);
         let backtest = body["backtest"].as_array().unwrap();
         assert_eq!(backtest.len(), 7, "one point per day of the 7-day window");
+        assert_eq!(llm.calls(), 7, "one LLM decision per backtest day");
 
         let id: Uuid = body["avatar"]["id"].as_str().unwrap().parse().unwrap();
         let stored = equity::list_equity(&pool, id, "backtest").await.unwrap();
         assert_eq!(stored.len(), 7);
+        let (_, decisions) = get_json(
+            &state,
+            &format!("/avatars/{id}/decisions?source=backtest&limit=7"),
+            None,
+        )
+        .await;
+        let decisions = decisions.as_array().unwrap();
+        assert_eq!(decisions.len(), 7);
+        // The public decision list never carries the persona.
+        assert!(!decisions.iter().any(|d| d.to_string().contains(PERSONA)));
+    }
+
+    #[sqlx::test]
+    async fn without_an_llm_the_avatar_is_created_with_a_null_backtest(pool: PgPool) {
+        seed_history(&pool).await;
+        // `test_state` has `llm: None`, like a backend without LLM_* settings.
+        let state = state_with_rpc(pool.clone(), full_access_answer()).await;
+        let cookie = login_cookie(&state, "alice.testnet").await;
+
+        let (status, body) = post_create(&state, &cookie).await;
+
+        assert_eq!(status, StatusCode::CREATED);
+        assert!(body["backtest"].is_null());
+        let id: Uuid = body["avatar"]["id"].as_str().unwrap().parse().unwrap();
+        assert!(
+            equity::list_equity(&pool, id, "backtest")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[sqlx::test]
+    async fn start_makes_a_created_avatar_visible_to_the_tick_loop(pool: PgPool) {
+        let state = state_with_rpc(pool.clone(), full_access_answer()).await;
+        let (cookie, id) = create_as(&state, "alice.testnet").await;
+        assert!(
+            avatars::list_active_avatars(&pool, "sim")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        let (status, body) = patch(&state, id, &cookie, json!({ "active": true })).await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["active"], true);
+        let active = avatars::list_active_avatars(&pool, "sim").await.unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, id);
+    }
+
+    #[sqlx::test]
+    async fn a_fourth_avatar_of_one_account_is_refused(pool: PgPool) {
+        let state = state_with_rpc(pool, full_access_answer()).await;
+        let cookie = login_cookie(&state, "alice.testnet").await;
+        for _ in 0..MAX_AVATARS_PER_ACCOUNT {
+            let (status, _) = post_create(&state, &cookie).await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+
+        let (status, body) = post_create(&state, &cookie).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body["error"].as_str().unwrap().contains("limit"), "{body}");
+        // The limit is per account: someone else can still create.
+        let bob = login_cookie(&state, "bob.testnet").await;
+        let (status, _) = post_create(&state, &bob).await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    #[sqlx::test]
+    async fn two_creates_at_the_same_time_cannot_pass_the_limit_together(pool: PgPool) {
+        let state = state_with_rpc(pool.clone(), full_access_answer()).await;
+        let cookie = login_cookie(&state, "alice.testnet").await;
+        for _ in 0..MAX_AVATARS_PER_ACCOUNT - 1 {
+            post_create(&state, &cookie).await;
+        }
+
+        // One slot left, two requests at once: the row lock lets only one in.
+        let (first, second) =
+            tokio::join!(post_create(&state, &cookie), post_create(&state, &cookie));
+
+        let created = [first.0, second.0]
+            .iter()
+            .filter(|status| **status == StatusCode::CREATED)
+            .count();
+        assert_eq!(created, 1);
+        let owned = avatars::list_avatars(&pool, Some("alice.testnet"))
+            .await
+            .unwrap();
+        assert_eq!(owned.len() as i64, MAX_AVATARS_PER_ACCOUNT);
     }
 
     #[sqlx::test]
     async fn create_without_history_keeps_the_avatar_with_a_null_backtest(pool: PgPool) {
-        let state = state_with_rpc(pool, full_access_answer()).await;
+        let (state, _llm) = state_with_llm(pool).await;
         let cookie = login_cookie(&state, "alice.testnet").await;
 
         let (status, _, body) = send(
@@ -748,6 +882,7 @@ mod tests {
                 sprite: "merchant_2".to_string(),
                 mode: "sim".to_string(),
                 starting_capital_usd: Decimal::from(1000),
+                active: true,
             },
         )
         .await

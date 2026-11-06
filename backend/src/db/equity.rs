@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use sqlx::{PgExecutor, PgPool};
+use sqlx::{PgConnection, PgExecutor, PgPool};
 use uuid::Uuid;
 
 /// One equity value of an avatar at a point in time.
@@ -14,29 +14,28 @@ pub struct EquityPoint {
 
 /// Replaces the avatar's whole backtest track record with `points` (D24).
 ///
-/// The delete and the inserts run in **one transaction**: a crash or error
-/// halfway rolls everything back, so readers see either the old track record
-/// or the new one, never half of each. Rows with another `source` (`sim`,
+/// Runs on the **caller's transaction** (`&mut *tx`), so the backtest can
+/// replace its equity and its decisions together (D63): a crash or error
+/// halfway rolls everything back, and readers see either the old backtest or
+/// the new one, never half of each. Rows with another `source` (`sim`,
 /// `real`) are not touched.
 ///
 /// # Errors
 /// Foreign key violation for an unknown avatar; CHECK violation for a
 /// negative equity; primary key violation if `points` has a duplicate `ts`.
 pub async fn replace_backtest_equity(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     avatar_id: Uuid,
     points: &[EquityPoint],
 ) -> sqlx::Result<()> {
-    let mut tx = pool.begin().await?;
-
     sqlx::query!(
         "DELETE FROM equity_snapshots WHERE avatar_id = $1 AND source = 'backtest'",
         avatar_id,
     )
-    .execute(&mut *tx)
+    .execute(&mut *conn)
     .await?;
 
-    // About 30 rows: one simple insert each is fast enough and easy to read.
+    // 7 rows (BACKTEST_DAYS): one simple insert each is fast enough and easy to read.
     for point in points {
         sqlx::query!(
             r#"
@@ -47,13 +46,10 @@ pub async fn replace_backtest_equity(
             point.ts,
             point.equity_usd,
         )
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await?;
     }
-
-    // If any step above returned early with `?`, `tx` is dropped without a
-    // commit and sqlx rolls it back.
-    tx.commit().await
+    Ok(())
 }
 
 /// Stores one equity point for `source` (`sim` or `real`; the backtest uses
@@ -150,10 +146,19 @@ mod tests {
                 sprite: "merchant_1".to_string(),
                 mode: "sim".to_string(),
                 starting_capital_usd: Decimal::from(10_000),
+                active: true,
             },
         )
         .await
         .unwrap()
+    }
+
+    /// `replace_backtest_equity` in its own transaction, committed only on
+    /// success (what `backtest::run_for_avatar` does, with decisions too).
+    async fn replace(pool: &PgPool, avatar_id: Uuid, points: &[EquityPoint]) -> sqlx::Result<()> {
+        let mut tx = pool.begin().await?;
+        replace_backtest_equity(&mut tx, avatar_id, points).await?;
+        tx.commit().await
     }
 
     fn point(day: u32, equity: i64) -> EquityPoint {
@@ -180,9 +185,7 @@ mod tests {
         let avatar = create_avatar(&pool).await;
         let points = [point(3, 10_020), point(1, 10_000), point(2, 10_010)];
 
-        replace_backtest_equity(&pool, avatar, &points)
-            .await
-            .unwrap();
+        replace(&pool, avatar, &points).await.unwrap();
 
         let listed = list_equity(&pool, avatar, "backtest").await.unwrap();
         assert_eq!(
@@ -194,13 +197,11 @@ mod tests {
     #[sqlx::test]
     async fn running_twice_keeps_only_the_second_set(pool: PgPool) {
         let avatar = create_avatar(&pool).await;
-        replace_backtest_equity(&pool, avatar, &[point(1, 1), point(2, 2)])
+        replace(&pool, avatar, &[point(1, 1), point(2, 2)])
             .await
             .unwrap();
 
-        replace_backtest_equity(&pool, avatar, &[point(5, 50)])
-            .await
-            .unwrap();
+        replace(&pool, avatar, &[point(5, 50)]).await.unwrap();
 
         let listed = list_equity(&pool, avatar, "backtest").await.unwrap();
         assert_eq!(listed, vec![point(5, 50)]);
@@ -211,9 +212,7 @@ mod tests {
         let avatar = create_avatar(&pool).await;
         insert_sim_point(&pool, avatar, &point(1, 9_999)).await;
 
-        replace_backtest_equity(&pool, avatar, &[point(1, 10_000)])
-            .await
-            .unwrap();
+        replace(&pool, avatar, &[point(1, 10_000)]).await.unwrap();
 
         // Same ts, different source: both rows exist, and each list sees only its own.
         assert_eq!(
@@ -229,12 +228,10 @@ mod tests {
     #[sqlx::test]
     async fn a_failing_insert_rolls_back_the_delete(pool: PgPool) {
         let avatar = create_avatar(&pool).await;
-        replace_backtest_equity(&pool, avatar, &[point(1, 10_000)])
-            .await
-            .unwrap();
+        replace(&pool, avatar, &[point(1, 10_000)]).await.unwrap();
 
         // Duplicate ts -> primary key violation on the second insert.
-        let result = replace_backtest_equity(&pool, avatar, &[point(2, 1), point(2, 2)]).await;
+        let result = replace(&pool, avatar, &[point(2, 1), point(2, 2)]).await;
 
         assert!(result.is_err());
         // The old track record is still there: the transaction undid the delete.
@@ -248,9 +245,7 @@ mod tests {
     async fn negative_equity_is_rejected(pool: PgPool) {
         let avatar = create_avatar(&pool).await;
 
-        let err = replace_backtest_equity(&pool, avatar, &[point(1, -1)])
-            .await
-            .unwrap_err();
+        let err = replace(&pool, avatar, &[point(1, -1)]).await.unwrap_err();
 
         assert!(err.as_database_error().unwrap().is_check_violation());
     }
@@ -266,9 +261,7 @@ mod tests {
         insert_equity_point(&pool, avatar, "sim", &point(1, 10_000))
             .await
             .unwrap();
-        replace_backtest_equity(&pool, avatar, &[point(9, 1)])
-            .await
-            .unwrap();
+        replace(&pool, avatar, &[point(9, 1)]).await.unwrap();
 
         assert_eq!(
             last_equity_ts(&pool, avatar, "sim").await.unwrap(),

@@ -30,6 +30,7 @@ use axum::{
 use serde_json::json;
 use sqlx::PgPool;
 
+use crate::agent::llm::LlmClient;
 use crate::live_events::LiveSender;
 
 /// Shared data every handler can use. Cloning is cheap: the pool, the HTTP
@@ -47,6 +48,10 @@ pub struct AppState {
     pub near_rpc_url: String,
     /// `MARKETPLACE_CONTRACT_ID`: the only contract whose events create clones.
     pub marketplace_contract_id: String,
+    /// The same LLM client as the tick loop, for the backtest on create (D63).
+    /// `None` when `LLM_*` is not set: avatars are still created, without a
+    /// backtest.
+    pub llm: Option<LlmClient>,
 }
 
 /// Builds the router with every HTTP route of the backend.
@@ -147,6 +152,7 @@ pub(crate) mod tests {
             http: reqwest::Client::new(),
             near_rpc_url: "http://127.0.0.1:9/".to_string(),
             marketplace_contract_id: "marketplace.test".to_string(),
+            llm: None,
         }
     }
 

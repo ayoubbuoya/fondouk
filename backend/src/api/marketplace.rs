@@ -158,14 +158,10 @@ pub async fn claim_purchase(
         return Ok(already_claimed(avatar_id));
     }
 
-    let transaction = near_rpc::fetch_transaction(
-        &state.http,
-        &state.near_rpc_url,
-        tx_hash,
-        &user.account_id,
-    )
-    .await?
-    .ok_or_else(|| ApiError::BadRequest("transaction not found".to_string()))?;
+    let transaction =
+        near_rpc::fetch_transaction(&state.http, &state.near_rpc_url, tx_hash, &user.account_id)
+            .await?
+            .ok_or_else(|| ApiError::BadRequest("transaction not found".to_string()))?;
     let purchase = parse_purchase(&transaction, &state.marketplace_contract_id)
         .map_err(ApiError::BadRequest)?;
     if purchase.buyer != user.account_id {
@@ -206,7 +202,9 @@ async fn create_clone(
 ) -> Result<(Uuid, bool), ApiError> {
     let source = avatars::get_avatar_with_config(&state.db, purchase.avatar_id)
         .await?
-        .ok_or_else(|| ApiError::BadRequest("the purchased character does not exist".to_string()))?;
+        .ok_or_else(|| {
+            ApiError::BadRequest("the purchased character does not exist".to_string())
+        })?;
     if source.cloned_from.is_some() {
         return Err(ApiError::BadRequest("a clone cannot be bought".to_string()));
     }
@@ -329,8 +327,8 @@ fn purchase_from_data(data: &Value) -> Result<Purchase, String> {
         return Err("purchase event has a bad price".to_string());
     }
     // `Decimal` holds up to ~79,000 NEAR; a larger price is refused, not rounded.
-    let price_yocto = Decimal::from_str(price)
-        .map_err(|_| "purchase price is too large to store".to_string())?;
+    let price_yocto =
+        Decimal::from_str(price).map_err(|_| "purchase price is too large to store".to_string())?;
     if price_yocto.is_zero() {
         return Err("purchase event has a zero price".to_string());
     }
@@ -426,8 +424,16 @@ mod tests {
         let mut failed = tx_result(id, "bob.testnet");
         failed["status"] = json!({ "Failure": { "ActionError": {} } });
 
-        assert!(parse_purchase(&pending, CONTRACT).unwrap_err().contains("final"));
-        assert!(parse_purchase(&failed, CONTRACT).unwrap_err().contains("failed"));
+        assert!(
+            parse_purchase(&pending, CONTRACT)
+                .unwrap_err()
+                .contains("final")
+        );
+        assert!(
+            parse_purchase(&failed, CONTRACT)
+                .unwrap_err()
+                .contains("failed")
+        );
     }
 
     #[test]
@@ -470,7 +476,11 @@ mod tests {
         tx["receipts_outcome"][0]["outcome"]["logs"] =
             json!([event_log(id, "bob.testnet"), event_log(id, "bob.testnet")]);
 
-        assert!(parse_purchase(&tx, CONTRACT).unwrap_err().contains("several"));
+        assert!(
+            parse_purchase(&tx, CONTRACT)
+                .unwrap_err()
+                .contains("several")
+        );
     }
 
     #[test]
@@ -533,6 +543,7 @@ mod tests {
                 sprite: "boy".to_string(),
                 mode: "sim".to_string(),
                 starting_capital_usd: Decimal::from(10_000),
+                active: true,
             },
         )
         .await
@@ -552,11 +563,7 @@ mod tests {
         (state, cookie)
     }
 
-    async fn claim(
-        state: &AppState,
-        cookie: Option<&str>,
-        tx_hash: &str,
-    ) -> (StatusCode, Value) {
+    async fn claim(state: &AppState, cookie: Option<&str>, tx_hash: &str) -> (StatusCode, Value) {
         let (status, _, body) = send(
             router(state.clone()),
             request(
@@ -581,8 +588,12 @@ mod tests {
     #[sqlx::test]
     async fn a_valid_claim_creates_a_clone_that_shares_the_strategy(pool: PgPool) {
         let (source, config_id) = seed_source(&pool).await;
-        let (state, bob) =
-            state_and_cookie(pool.clone(), "bob.testnet", tx_result(source, "bob.testnet")).await;
+        let (state, bob) = state_and_cookie(
+            pool.clone(),
+            "bob.testnet",
+            tx_result(source, "bob.testnet"),
+        )
+        .await;
 
         let (status, body) = claim(&state, Some(&bob), TX_HASH).await;
 
@@ -596,7 +607,10 @@ mod tests {
             .unwrap();
         assert_eq!(clone.owner, "bob.testnet");
         assert_eq!(clone.cloned_from, Some(source));
-        assert_eq!(clone.config_id, config_id, "points to the strategy, no copy");
+        assert_eq!(
+            clone.config_id, config_id,
+            "points to the strategy, no copy"
+        );
         assert!(!clone.listed, "F11.5: a clone is never listed");
         assert_eq!(clone.mode, "sim");
         assert_eq!(clone.starting_capital_usd, Decimal::from(10_000));
@@ -613,8 +627,12 @@ mod tests {
     #[sqlx::test]
     async fn claiming_the_same_transaction_twice_creates_one_clone(pool: PgPool) {
         let (source, _) = seed_source(&pool).await;
-        let (state, bob) =
-            state_and_cookie(pool.clone(), "bob.testnet", tx_result(source, "bob.testnet")).await;
+        let (state, bob) = state_and_cookie(
+            pool.clone(),
+            "bob.testnet",
+            tx_result(source, "bob.testnet"),
+        )
+        .await;
 
         let (first_status, first) = claim(&state, Some(&bob), TX_HASH).await;
         let (second_status, second) = claim(&state, Some(&bob), TX_HASH).await;
@@ -629,8 +647,12 @@ mod tests {
     #[sqlx::test]
     async fn losing_a_race_returns_the_existing_clone_and_keeps_no_extra_row(pool: PgPool) {
         let (source, _) = seed_source(&pool).await;
-        let (state, _) =
-            state_and_cookie(pool.clone(), "bob.testnet", tx_result(source, "bob.testnet")).await;
+        let (state, _) = state_and_cookie(
+            pool.clone(),
+            "bob.testnet",
+            tx_result(source, "bob.testnet"),
+        )
+        .await;
         let purchase = parse_purchase(&tx_result(source, "bob.testnet"), CONTRACT).unwrap();
 
         // Two requests that both passed the "already claimed?" check.
@@ -640,7 +662,11 @@ mod tests {
         assert!(first_created);
         assert!(!second_created);
         assert_eq!(first, second);
-        assert_eq!(avatar_count(&pool).await, 2, "the lost clone was rolled back");
+        assert_eq!(
+            avatar_count(&pool).await,
+            2,
+            "the lost clone was rolled back"
+        );
     }
 
     #[sqlx::test]

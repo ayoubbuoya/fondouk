@@ -97,6 +97,26 @@ export interface EquityPoint {
   equity_usd: string
 }
 
+/** Body of `POST /avatars` (backend `CreateAvatarRequest`; unknown fields are refused). */
+export interface CreateAvatarRequest {
+  name: string
+  sprite: string
+  /** The private strategy: persona and rules, 1 to 2000 characters. */
+  persona: string
+  risk: AvatarDetail['risk']
+  goal: AvatarDetail['goal']
+  /** Only `sim` until the vault exists (D42). */
+  mode: 'sim'
+  starting_capital_usd: number
+}
+
+/** Answer of `POST /avatars`. */
+export interface CreatedAvatar {
+  avatar: AvatarDetail
+  /** 7 daily points labelled backtest, or `null` (no AI configured, or no history). */
+  backtest: EquityPoint[] | null
+}
+
 /** `POST /auth/challenge`: what the wallet must sign. */
 export interface Challenge {
   /** base64 of 32 random bytes; single use, valid 5 minutes. */
@@ -186,12 +206,29 @@ export function getAvatar(id: string): Promise<AvatarDetail> {
  * The last `limit` decisions of one data source. Sources are never mixed
  * (CLAUDE.md "data source labels"), so the caller must pick one.
  */
-export function getDecisions(id: string, source: AvatarMode, limit = 10): Promise<Decision[]> {
+export function getDecisions(
+  id: string,
+  source: AvatarMode | 'backtest',
+  limit = 10,
+): Promise<Decision[]> {
   return request('GET', `/avatars/${encodeURIComponent(id)}/decisions?source=${source}&limit=${limit}`)
 }
 
 export function getEquity(id: string, source: AvatarMode): Promise<EquityPoint[]> {
   return request('GET', `/avatars/${encodeURIComponent(id)}/equity?source=${source}`)
+}
+
+/**
+ * Creates a character, paused, and runs its 7-day AI backtest (D63). Slow on
+ * purpose: the backend waits for one LLM decision per day before answering.
+ */
+export function createAvatar(body: CreateAvatarRequest): Promise<CreatedAvatar> {
+  return request('POST', '/avatars', body)
+}
+
+/** Owner only. Used for Start / Pause (`{ active }`). */
+export function updateAvatar(id: string, body: { active: boolean }): Promise<AvatarDetail> {
+  return request('PATCH', `/avatars/${encodeURIComponent(id)}`, body)
 }
 
 export function getListings(): Promise<MarketplaceListing[]> {

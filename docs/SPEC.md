@@ -68,7 +68,7 @@ Priority: **P0** = must ship for demo. **P1** = should ship. **P2** = only if ti
 ### F3. Character creation (P0)
 - F3.1 Form fields: name, sprite (pick from 6 to 10), risk level (low, medium, high), goal (one of: steady income, max yield, protect capital), free-text rules (max 500 characters), starting capital (sim only, fixed options).
 - F3.2 Risk level maps to hard limits in code (section 6). The LLM cannot change them.
-- F3.3 On create, the character goes straight into the town. No backtest is needed (D51); showing one is optional (F5).
+- F3.3 Created from the UI wizard (D63): the character is created **paused**, its 7-day LLM backtest (F5) is shown, and it goes live when the owner presses Start. Persona and rules are one text box (max 2000 characters). At most 3 characters per account.
 - Acceptance: create a character and see it appear in the town.
 
 ### F4. Agent decision loop (P0)
@@ -80,7 +80,7 @@ Priority: **P0** = must ship for demo. **P1** = should ship. **P2** = only if ti
 - Acceptance: run 3 ticks with 5 characters, every decision is logged with input hash, action, validity and reason.
 
 ### F5. Backtest (P2, optional)
-**Optional (D51):** no other feature depends on the backtest. Build or finish it only if there is time. The engine exists in `backend/src/backtest/` (mock decision rule, not shown in the UI); switching it to the LLM (D35) is on hold.
+**Built (D63, 6 Nov):** the create wizard shows it. It runs the live `decide()` (LLM + persona) once per day; no other feature depends on it (D51).
 - F5.1 Replay the last 7 days of daily (or finer) APR history for the chosen villages.
 - F5.2 Use the same decision function as live mode, but to control LLM cost, run one decision per day of history (7 calls max per character, D60).
 - F5.3 Apply the same cost model as simulation (F6.3).

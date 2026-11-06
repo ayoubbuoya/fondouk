@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        INSERT INTO avatars (owner, config_id, name, sprite, mode, starting_capital_usd, cash_usd)\n        VALUES ($1, $2, $3, $4, $5, $6, $6)\n        RETURNING id\n        ",
+  "query": "\n        INSERT INTO avatars (owner, config_id, name, sprite, mode, starting_capital_usd, cash_usd, active)\n        VALUES ($1, $2, $3, $4, $5, $6, $6, $7)\n        RETURNING id\n        ",
   "describe": {
     "columns": [
       {
@@ -22,12 +22,13 @@
         "Text",
         "Text",
         "Text",
-        "Numeric"
+        "Numeric",
+        "Bool"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "c880f30fbc43c24cb15769b79028402f06247c3dc70013fa942527c0cec9cb5f"
+  "hash": "2f6c8188264934b03f717b53c9cdf08df67807d4a02c36fb69edea9c1d210008"
 }

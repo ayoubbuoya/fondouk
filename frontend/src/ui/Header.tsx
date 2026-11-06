@@ -8,14 +8,16 @@ type Account = string | null | undefined
 
 interface HeaderProps {
   onOpenMarketplace: () => void
+  /** Opens the create-avatar wizard; the button shows only when logged in. */
+  onCreateAvatar: () => void
 }
 
 /**
- * Top bar: title, data source note (F2 acceptance), the Marketplace button and
- * the wallet button. On load it asks `GET /auth/me`, so a page reload keeps the
+ * Top bar: title, data source note (F2 acceptance), the Marketplace button,
+ * the Create avatar button (logged in only, D63) and the wallet button. On load it asks `GET /auth/me`, so a page reload keeps the
  * login (F1).
  */
-export function Header({ onOpenMarketplace }: HeaderProps) {
+export function Header({ onOpenMarketplace, onCreateAvatar }: HeaderProps) {
   const [account, setAccount] = useState<Account>(undefined)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -62,6 +64,9 @@ export function Header({ onOpenMarketplace }: HeaderProps) {
           </button>
         ) : (
           <>
+            <button type="button" onClick={onCreateAvatar}>
+              Create avatar
+            </button>
             <span className="header-account">{account}</span>
             <button type="button" onClick={onLogout} disabled={busy}>
               Log out

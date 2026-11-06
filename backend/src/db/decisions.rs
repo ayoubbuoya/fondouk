@@ -110,6 +110,21 @@ pub async fn ticks_since_last_move(
     }))
 }
 
+/// Deletes the avatar's `backtest` decisions before a new backtest stores its
+/// own (D63). `sim` and `real` decisions are never touched.
+pub async fn delete_backtest_decisions<'e>(
+    executor: impl PgExecutor<'e>,
+    avatar_id: Uuid,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        "DELETE FROM decisions WHERE avatar_id = $1 AND source = 'backtest'",
+        avatar_id,
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
 /// The avatar's decisions for `source`, newest first.
 pub async fn list_decisions(
     pool: &PgPool,
@@ -164,6 +179,7 @@ mod tests {
                 sprite: "merchant_1".to_string(),
                 mode: "sim".to_string(),
                 starting_capital_usd: Decimal::from(1000),
+                active: true,
             },
         )
         .await

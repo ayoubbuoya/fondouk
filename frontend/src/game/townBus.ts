@@ -14,6 +14,7 @@
  * | `avatar:moved`     | `AvatarMoved`      | React -> TownScene |
  * | `avatar:selected`  | avatar id          | TownScene -> React |
  * | `village:selected` | village id         | TownScene -> React |
+ * | `avatars:reload`   | none               | App -> TownCanvas (after a create, D63) |
  */
 
 import { Events } from 'phaser'

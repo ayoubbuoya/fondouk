@@ -102,6 +102,7 @@ mod tests {
                 sprite: "merchant_1".to_string(),
                 mode: "sim".to_string(),
                 starting_capital_usd: Decimal::from(1000),
+                active: true,
             },
         )
         .await

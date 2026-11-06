@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM decisions WHERE avatar_id = $1 AND source = 'backtest'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "38adbb965f145566ed0fcad53e1b1f396257adfce8bfbc042626e02eba05f8ce"
+}

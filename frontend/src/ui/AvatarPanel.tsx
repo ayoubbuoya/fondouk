@@ -1,8 +1,17 @@
 import { useEffect, useState } from 'react'
 
 import { faceUrl } from '../game/sprites'
-import { getAvatar, getDecisions, getEquity, type AvatarDetail, type Decision, type EquityPoint } from '../lib/api'
+import {
+  getAvatar,
+  getDecisions,
+  getEquity,
+  updateAvatar,
+  type AvatarDetail,
+  type Decision,
+  type EquityPoint,
+} from '../lib/api'
 import { actionLabel, formatUsd } from '../lib/format'
+import { currentAccount } from '../lib/wallet'
 import { LineChart } from './LineChart'
 
 interface AvatarPanelProps {
@@ -15,6 +24,8 @@ interface AvatarData {
   avatar: AvatarDetail
   decisions: Decision[]
   equity: EquityPoint[]
+  /** The logged-in account, `null` when nobody is: decides the Start/Pause button. */
+  viewer: string | null
 }
 
 const GOAL_LABELS: Record<AvatarDetail['goal'], string> = {
@@ -30,22 +41,28 @@ const GOAL_LABELS: Record<AvatarDetail['goal'], string> = {
  * History is read for the character's own mode only (`sim` or `real`) and
  * labelled with it: sources are never mixed (CLAUDE.md "data source labels").
  * The persona is never shown here, even to its creator (D7).
+ *
+ * The owner gets a Start / Pause button (`PATCH {active}`, D63): a new
+ * character is created paused.
  */
 export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
   const [data, setData] = useState<AvatarData | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [toggling, setToggling] = useState(false)
+  const [toggleError, setToggleError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       // The mode decides which history to read, so the detail comes first.
       const avatar = await getAvatar(avatarId)
-      const [decisions, equity] = await Promise.all([
+      const [decisions, equity, viewer] = await Promise.all([
         getDecisions(avatarId, avatar.mode, 10),
         getEquity(avatarId, avatar.mode),
+        currentAccount(),
       ])
       if (!cancelled) {
-        setData({ avatar, decisions, equity })
+        setData({ avatar, decisions, equity, viewer })
         setError(null)
       }
     }
@@ -62,8 +79,24 @@ export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
   // A different character was clicked: show "loading" instead of old data.
   if (!data || data.avatar.id !== avatarId) return <p className="panel-muted">Loading…</p>
 
-  const { avatar, decisions, equity } = data
+  const { avatar, decisions, equity, viewer } = data
+  const isOwner = viewer !== null && viewer === avatar.owner
   const start = Number(avatar.starting_capital_usd)
+
+  // The backend checks ownership again (403 for anyone else).
+  const toggleActive = async () => {
+    setToggling(true)
+    setToggleError(null)
+    try {
+      const updated = await updateAvatar(avatar.id, { active: !avatar.active })
+      setData({ ...data, avatar: updated })
+    } catch (err) {
+      console.error('changing start/pause failed', err)
+      setToggleError('Could not change it. Try again.')
+    } finally {
+      setToggling(false)
+    }
+  }
   const change = start > 0 ? (Number(avatar.equity_usd) / start - 1) * 100 : 0
   const positions = Object.entries(avatar.positions).sort(([, a], [, b]) => Number(b) - Number(a))
 
@@ -84,6 +117,14 @@ export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
         {avatar.cloned_from && ' · clone'}
         {!avatar.active && ' · paused'}
       </p>
+      {isOwner && (
+        <div className="form-actions">
+          <button type="button" onClick={toggleActive} disabled={toggling}>
+            {toggling ? 'Saving…' : avatar.active ? 'Pause' : 'Start'}
+          </button>
+          {toggleError && <span className="header-error">{toggleError}</span>}
+        </div>
+      )}
 
       <section>
         <h3>

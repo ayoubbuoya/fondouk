@@ -3,10 +3,12 @@
 //! (SPEC F5, TECH §5.2).
 //!
 //! Two layers:
-//! - `run` is pure (history in, equity points out), so the replay rules are
-//!   unit-tested without a database.
+//! - `run` has no database or network (history in, equity points out); the
+//!   decision rule is passed in, so the replay rules are unit-tested with
+//!   simple closures.
 //! - `run_for_avatar` loads the avatar and history from Postgres, calls `run`
-//!   and saves the result in one transaction (D24).
+//!   with the **live** `agent::decide` (LLM + persona, D63) and saves the
+//!   equity and the decisions in one transaction (D24).
 //!
 //! Each day: build the `MarketState`, ask `decide`, check the action with the
 //! guardrails (a refused action becomes HOLD), apply it paying its estimated
@@ -21,12 +23,19 @@ use rust_decimal::Decimal;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::agent::decide::{Decision, decide};
 use crate::agent::guardrails::{self, Risk};
-use crate::agent::{Action, MarketState, VillageQuote, mock_decide};
+use crate::agent::llm::LlmClient;
+use crate::agent::prompt::Profile;
+use crate::agent::{Action, MarketState, VillageQuote};
+use crate::db::decisions::{self, NewDecision};
 use crate::db::equity::{self, EquityPoint};
 use crate::db::villages::Village;
 use crate::db::{avatars, villages, yield_snapshots};
 use crate::sim::ledger::{Ledger, LedgerError};
+
+/// `decisions.source` / `equity_snapshots.source` of every backtest row.
+const SOURCE: &str = "backtest";
 
 /// Length of the backtest window (SPEC F5.1, D60). Kept short because each
 /// day is one `decide()` call, which costs AI tokens once the LLM is used.
@@ -40,39 +49,63 @@ pub struct DayQuotes {
     pub villages: Vec<VillageQuote>,
 }
 
-/// Replays `days` in order, starting with `starting_capital` in cash, and
-/// returns one equity point per day, timestamped at the **end** of that day
-/// (next UTC midnight).
+/// The replay rules of one backtest, one day at a time. Each day the caller
+/// asks `morning_state` + `ticks_since_last_move`, gets an action from its
+/// decision rule, and gives it to `finish_day`.
 ///
-/// Every action goes through `guardrails::check` for `risk` ("the LLM
-/// proposes, code decides"). A refused action becomes HOLD and is logged with
-/// the rule. A village without data that day is not in `villages`, so it
-/// cannot receive money (D23).
-///
-/// # Errors
-/// `LedgerError::Overflow` if an amount no longer fits a `Decimal`.
-pub fn run(
-    days: &[DayQuotes],
-    starting_capital: Decimal,
+/// Why a struct and not a callback: the LLM rule is async, and an async
+/// callback that borrows the LLM client cannot be proven `Send` by the
+/// compiler (needed by axum handlers). With this shape, `run` (plain rule,
+/// tests) and `run_for_avatar` (LLM) share every rule and differ only in how
+/// they ask for the action.
+struct Replay {
+    ledger: Ledger,
     risk: Risk,
-    mut decide: impl FnMut(&MarketState) -> Action,
-) -> Result<Vec<EquityPoint>, LedgerError> {
-    let mut ledger = Ledger::new(starting_capital);
-    let mut points = Vec::with_capacity(days.len());
-    // Index of the day of the last applied MOVE or REBALANCE (cooldown).
-    let mut last_move_day: Option<usize> = None;
+    points: Vec<EquityPoint>,
+    /// Index of the day being replayed.
+    day_index: usize,
+    /// Index of the day of the last applied MOVE or REBALANCE (cooldown).
+    last_move_day: Option<usize>,
+}
 
-    for (day_index, today) in days.iter().enumerate() {
-        let state = MarketState {
+impl Replay {
+    fn new(starting_capital: Decimal, risk: Risk) -> Self {
+        Self {
+            ledger: Ledger::new(starting_capital),
+            risk,
+            points: Vec::new(),
+            day_index: 0,
+            last_move_day: None,
+        }
+    }
+
+    /// What the decision rule sees at the start of `today`.
+    fn morning_state(&self, today: &DayQuotes) -> MarketState {
+        MarketState {
             day: today.day,
             villages: today.villages.clone(),
-            cash_usd: ledger.cash_usd(),
-            positions: ledger.positions().clone(),
-        };
-        let action = decide(&state);
-        let ticks_since_last_move = last_move_day.map(|day| (day_index - day) as u32);
-        if apply_action(&mut ledger, &action, &state, risk, ticks_since_last_move) {
-            last_move_day = Some(day_index);
+            cash_usd: self.ledger.cash_usd(),
+            positions: self.ledger.positions().clone(),
+        }
+    }
+
+    /// Days since the last applied move, `None` when it never moved. The
+    /// cooldown rule reads it, and the LLM prompt shows it.
+    fn ticks_since_last_move(&self) -> Option<u32> {
+        self.last_move_day.map(|day| (self.day_index - day) as u32)
+    }
+
+    /// Applies `action` (guardrails first, HOLD when refused), grows the
+    /// positions by one day of yield and records the day's equity point.
+    fn finish_day(
+        &mut self,
+        today: &DayQuotes,
+        state: &MarketState,
+        action: &Action,
+    ) -> Result<(), LedgerError> {
+        let ticks = self.ticks_since_last_move();
+        if apply_action(&mut self.ledger, action, state, self.risk, ticks) {
+            self.last_move_day = Some(self.day_index);
         }
 
         let apys: BTreeMap<String, Decimal> = today
@@ -80,14 +113,44 @@ pub fn run(
             .iter()
             .map(|quote| (quote.village_id.clone(), quote.apy))
             .collect();
-        ledger.accrue_one_day(&apys)?;
+        self.ledger.accrue_one_day(&apys)?;
 
-        points.push(EquityPoint {
+        self.points.push(EquityPoint {
             ts: end_of_day(today.day),
-            equity_usd: ledger.equity(),
+            equity_usd: self.ledger.equity(),
         });
+        self.day_index += 1;
+        Ok(())
     }
-    Ok(points)
+}
+
+/// Replays `days` in order with a plain decision rule, starting with
+/// `starting_capital` in cash, and returns one equity point per day,
+/// timestamped at the **end** of that day (next UTC midnight).
+///
+/// Every action goes through `guardrails::check` for `risk` ("the LLM
+/// proposes, code decides"). A refused action becomes HOLD and is logged with
+/// the rule. A village without data that day is not in `villages`, so it
+/// cannot receive money (D23).
+///
+/// `decide` gets the day's state and the days since the last applied move
+/// (`None` = never moved). `run_for_avatar` runs the same loop with the LLM.
+///
+/// # Errors
+/// `LedgerError::Overflow` if an amount no longer fits a `Decimal`.
+pub fn run(
+    days: &[DayQuotes],
+    starting_capital: Decimal,
+    risk: Risk,
+    mut decide: impl FnMut(&MarketState, Option<u32>) -> Action,
+) -> Result<Vec<EquityPoint>, LedgerError> {
+    let mut replay = Replay::new(starting_capital, risk);
+    for today in days {
+        let state = replay.morning_state(today);
+        let action = decide(&state, replay.ticks_since_last_move());
+        replay.finish_day(today, &state, &action)?;
+    }
+    Ok(replay.points)
 }
 
 /// Applies `action` to the ledger, with its estimated cost, if the
@@ -131,13 +194,19 @@ fn start_of_day(day: NaiveDate) -> DateTime<Utc> {
 }
 
 /// Runs the backtest of one avatar over the last `BACKTEST_DAYS` **complete**
-/// UTC days before `now`, and replaces its stored backtest equity (D24).
+/// UTC days before `now`, and replaces its stored backtest equity and
+/// decisions (D24, D63).
 ///
-/// Still uses the mock decision rule; switching to the LLM is its own plan
-/// after Day 4 (HANDOFF D35). Starts from the
-/// avatar's `starting_capital_usd` (the backtest is a "what if you had started
-/// 7 days ago", not its current cash). `now` is a parameter so tests are
-/// deterministic.
+/// Each day is one call of the live `agent::decide` with the avatar's persona
+/// (HANDOFF D35, D63): same prompt, cache, retry, HOLD fallback and
+/// guardrails as the tick loop ("one decide() for everything"). An LLM
+/// failure on a day becomes HOLD `llm_error` for that day only; the next day
+/// asks again (Ayoub, S1). Cost: up to `BACKTEST_DAYS` × 2 LLM calls, fewer
+/// when answers are already in `llm_cache`.
+///
+/// Starts from the avatar's `starting_capital_usd` (the backtest is a "what
+/// if you had started 7 days ago", not its current cash). `now` is a
+/// parameter so tests are deterministic.
 ///
 /// The replay starts at the first day that has data for any village, and then
 /// covers every calendar day up to yesterday: a day without any data still
@@ -151,6 +220,7 @@ fn start_of_day(day: NaiveDate) -> DateTime<Utc> {
 /// ledger overflow.
 pub async fn run_for_avatar(
     pool: &PgPool,
+    llm: &LlmClient,
     avatar_id: Uuid,
     now: DateTime<Utc>,
 ) -> Result<Vec<EquityPoint>> {
@@ -173,8 +243,34 @@ pub async fn run_for_avatar(
     }
 
     let risk: Risk = avatar.risk.parse().map_err(anyhow::Error::msg)?;
-    let points = run(&days, avatar.starting_capital_usd, risk, mock_decide)?;
-    equity::replace_backtest_equity(pool, avatar_id, &points).await?;
+    let profile = Profile {
+        persona: &avatar.persona,
+        risk,
+        goal: &avatar.goal,
+    };
+    // Same loop as `run`, but each day asks the live `decide` (LLM). Days run
+    // one after another: each starts from the previous day's ledger.
+    let mut replay = Replay::new(avatar.starting_capital_usd, risk);
+    let mut day_decisions: Vec<(NaiveDate, Decision)> = Vec::with_capacity(days.len());
+    for today in &days {
+        let state = replay.morning_state(today);
+        let decision = decide(llm, pool, &profile, &state, replay.ticks_since_last_move()).await;
+        replay.finish_day(today, &state, &decision.applied)?;
+        day_decisions.push((today.day, decision));
+    }
+    let points = replay.points;
+
+    // The LLM calls are done: only now open the transaction, so it is never
+    // held open while waiting for the network.
+    let mut tx = pool.begin().await?;
+    equity::replace_backtest_equity(&mut tx, avatar_id, &points).await?;
+    decisions::delete_backtest_decisions(&mut *tx, avatar_id).await?;
+    for (day, decision) in &day_decisions {
+        let row = backtest_decision_row(avatar_id, *day, decision)?;
+        decisions::insert_decision(&mut *tx, &row).await?;
+    }
+    // An early `?` above drops `tx` without commit: sqlx rolls it all back.
+    tx.commit().await?;
 
     tracing::info!(
         avatar = %avatar_id,
@@ -183,6 +279,33 @@ pub async fn run_for_avatar(
         "backtest stored"
     );
     Ok(points)
+}
+
+/// The `decisions` row of one replayed day, stamped at the **start** of that
+/// day (its equity point is at the end). Same fields as a live decision.
+fn backtest_decision_row(
+    avatar_id: Uuid,
+    day: NaiveDate,
+    decision: &Decision,
+) -> Result<NewDecision> {
+    Ok(NewDecision {
+        avatar_id,
+        ts: start_of_day(day),
+        source: SOURCE.to_string(),
+        input_hash: decision.input_hash.clone(),
+        model: decision.model.clone(),
+        proposed_action: decision
+            .proposed
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .context("could not serialize the proposed action")?,
+        applied_action: serde_json::to_value(&decision.applied)
+            .context("could not serialize the applied action")?,
+        rejected_rule: decision.rejected_rule.clone(),
+        reason_public: Some(decision.reason_public()),
+        cost_usd: decision.cost_usd,
+    })
 }
 
 /// Loads the daily history and turns it into one `DayQuotes` per calendar day,
@@ -233,10 +356,23 @@ async fn load_days(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
+    use crate::agent::mock_decide;
+    use crate::config::LlmConfig;
+    use axum::{Json, Router, extract::State, routing::post};
     use chrono::TimeZone;
     use rust_decimal::MathematicalOps;
+    use serde_json::{Value, json};
+
+    /// Turns a rule that ignores the cooldown counter into what `run` takes.
+    fn sync(
+        mut rule: impl FnMut(&MarketState) -> Action,
+    ) -> impl FnMut(&MarketState, Option<u32>) -> Action {
+        move |state: &MarketState, _: Option<u32>| rule(state)
+    }
 
     fn d(value: &str) -> Decimal {
         Decimal::from_str_exact(value).unwrap()
@@ -299,7 +435,7 @@ mod tests {
     fn seven_days_give_seven_points_stamped_at_end_of_day() {
         let history = days(7, |_| vec![quote("a", "10")]);
 
-        let points = run(&history, d("10000"), Risk::High, mock_decide).unwrap();
+        let points = run(&history, d("10000"), Risk::High, sync(mock_decide)).unwrap();
 
         assert_eq!(points.len(), 7);
         assert_eq!(
@@ -316,7 +452,7 @@ mod tests {
     fn flat_apy_grows_equity_every_day_by_the_formula() {
         let history = days(7, |_| vec![quote("a", "10")]);
 
-        let points = run(&history, d("10000"), Risk::High, mock_decide).unwrap();
+        let points = run(&history, d("10000"), Risk::High, sync(mock_decide)).unwrap();
 
         assert!(
             points
@@ -338,7 +474,7 @@ mod tests {
             vec![quote("a", "5"), quote("b", b_apy)]
         });
 
-        let points = run(&history, d("10000"), Risk::High, mock_decide).unwrap();
+        let points = run(&history, d("10000"), Risk::High, sync(mock_decide)).unwrap();
 
         // Into "a" on day 0 (one entry), then a to b on day 3 (exit + entry).
         let after_a = grown(invested(), "5", 3) - gas() - gas();
@@ -354,7 +490,7 @@ mod tests {
     fn holding_cash_keeps_equity_flat() {
         let history = days(5, |_| vec![quote("a", "10")]);
 
-        let points = run(&history, d("10000"), Risk::High, |_| hold()).unwrap();
+        let points = run(&history, d("10000"), Risk::High, sync(|_| hold())).unwrap();
 
         assert!(points.iter().all(|p| p.equity_usd == d("10000")));
     }
@@ -367,7 +503,7 @@ mod tests {
             reason: "test".to_string(),
         };
 
-        let points = run(&history, d("10000"), Risk::High, into_ghost).unwrap();
+        let points = run(&history, d("10000"), Risk::High, sync(into_ghost)).unwrap();
 
         assert!(points.iter().all(|p| p.equity_usd == d("10000")));
     }
@@ -380,7 +516,7 @@ mod tests {
             reason: "test".to_string(),
         };
 
-        let points = run(&history, d("10000"), Risk::High, bad).unwrap();
+        let points = run(&history, d("10000"), Risk::High, sync(bad)).unwrap();
 
         assert!(points.iter().all(|p| p.equity_usd == d("10000")));
     }
@@ -396,7 +532,7 @@ mod tests {
             reason: "test".to_string(),
         };
 
-        let points = run(&history, d("10000"), Risk::High, mover).unwrap();
+        let points = run(&history, d("10000"), Risk::High, sync(mover)).unwrap();
 
         assert!(points.iter().all(|p| p.equity_usd == d("10000")));
     }
@@ -421,7 +557,7 @@ mod tests {
             }
         };
 
-        let points = run(&history, d("10000"), Risk::High, plan).unwrap();
+        let points = run(&history, d("10000"), Risk::High, sync(plan)).unwrap();
 
         let day_0 = grown(invested(), "5", 1);
         assert!(within_a_cent(points[0].equity_usd, day_0));
@@ -458,7 +594,7 @@ mod tests {
             }
         };
 
-        run(&history, d("10000"), Risk::Medium, shift).unwrap();
+        run(&history, d("10000"), Risk::Medium, sync(shift)).unwrap();
 
         // Day 0 invests 60/40; days 1-2 are refused; day 3 moves to 45/55.
         let expected = [None, Some(60), Some(60), Some(60), Some(45)];
@@ -470,7 +606,7 @@ mod tests {
         // Max share 60% for low risk: the mock's 100% rebalance is refused.
         let history = days(3, |_| vec![quote("a", "10")]);
 
-        let points = run(&history, d("10000"), Risk::Low, mock_decide).unwrap();
+        let points = run(&history, d("10000"), Risk::Low, sync(mock_decide)).unwrap();
 
         assert!(points.iter().all(|p| p.equity_usd == d("10000")));
     }
@@ -486,7 +622,7 @@ mod tests {
             }
         });
 
-        let points = run(&history, d("10000"), Risk::High, mock_decide).unwrap();
+        let points = run(&history, d("10000"), Risk::High, sync(mock_decide)).unwrap();
 
         assert_eq!(points.len(), 3);
         assert!(within_a_cent(
@@ -500,14 +636,40 @@ mod tests {
         let history = days(2, |_| vec![quote("a", "10")]);
         let mut seen_cash = Vec::new();
 
-        run(&history, d("10000"), Risk::High, |state| {
-            seen_cash.push(state.cash_usd);
-            mock_decide(state)
-        })
+        run(
+            &history,
+            d("10000"),
+            Risk::High,
+            sync(|state| {
+                seen_cash.push(state.cash_usd);
+                mock_decide(state)
+            }),
+        )
         .unwrap();
 
         // Day 0: all cash. Day 1: everything was moved to "a" the day before.
         assert_eq!(seen_cash, vec![d("10000"), Decimal::ZERO]);
+    }
+
+    #[test]
+    fn decide_is_told_the_days_since_the_last_move() {
+        // Day 0 invests (a move), days 1-3 hold: the LLM prompt shows the
+        // cooldown from this number, so it must count up from the move.
+        let history = days(4, |_| vec![quote("a", "10")]);
+        let mut seen_ticks = Vec::new();
+
+        run(
+            &history,
+            d("10000"),
+            Risk::High,
+            |state: &MarketState, ticks: Option<u32>| {
+                seen_ticks.push(ticks);
+                mock_decide(state)
+            },
+        )
+        .unwrap();
+
+        assert_eq!(seen_ticks, vec![None, Some(1), Some(2), Some(3)]);
     }
 
     // ---- database tests (run_for_avatar) ----
@@ -518,15 +680,76 @@ mod tests {
         Utc.with_ymd_and_hms(2026, 11, 4, 15, 0, 0).unwrap()
     }
 
+    /// The persona of the DB test avatar; the tests look for it in the prompt.
+    const PERSONA: &str = "Prefer lending, never touch DEX pools.";
+    pub(crate) const HOLD_ANSWER: &str =
+        r#"{"action":"HOLD","reason":"Waiting for a better rate."}"#;
+    const ALL_IN_USDC: &str =
+        r#"{"action":"REBALANCE","weights":{"rhea-lend-usdc":100},"reason":"Best lending rate."}"#;
+
+    /// A fake OpenAI-compatible server that always answers `content` and
+    /// keeps every request body, so tests can count calls and read prompts.
+    pub(crate) struct FakeLlm {
+        pub(crate) client: LlmClient,
+        pub(crate) requests: Arc<Mutex<Vec<Value>>>,
+    }
+
+    impl FakeLlm {
+        pub(crate) fn calls(&self) -> usize {
+            self.requests.lock().unwrap().len()
+        }
+    }
+
+    pub(crate) async fn fake_llm(content: &str) -> FakeLlm {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let app = Router::new()
+            .route(
+                "/chat/completions",
+                post(
+                    |State((content, requests)): State<(String, Arc<Mutex<Vec<Value>>>)>,
+                     Json(body): Json<Value>| async move {
+                        requests.lock().unwrap().push(body);
+                        Json(json!({
+                            "id": "chatcmpl-test",
+                            "object": "chat.completion",
+                            "created": 0,
+                            "model": "fake-model",
+                            "choices": [{
+                                "index": 0,
+                                "message": { "role": "assistant", "content": content },
+                                "finish_reason": "stop"
+                            }]
+                        }))
+                    },
+                ),
+            )
+            .with_state((content.to_string(), requests.clone()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        FakeLlm {
+            client: client(&format!("http://{addr}")),
+            requests,
+        }
+    }
+
+    fn client(base_url: &str) -> LlmClient {
+        LlmClient::new(&LlmConfig {
+            base_url: base_url.to_string(),
+            api_key: "test-key".to_string(),
+            model: "fake-model".to_string(),
+        })
+    }
+
     async fn create_avatar(pool: &PgPool) -> Uuid {
         let owner = "alice.testnet";
         avatars::ensure_user(pool, owner).await.unwrap();
         let config_id = avatars::insert_config(
             pool,
             &avatars::NewConfig {
-                persona: "Prefer lending.".to_string(),
-                // High risk: the mock goes all-in on one village, which low and
-                // medium risk refuse (max share 60% / 80%).
+                persona: PERSONA.to_string(),
+                // High risk: all-in on one village is allowed (low and medium
+                // risk refuse it: max share 60% / 80%).
                 risk: "high".to_string(),
                 goal: "steady_income".to_string(),
                 created_by: owner.to_string(),
@@ -543,6 +766,7 @@ mod tests {
                 sprite: "merchant_1".to_string(),
                 mode: "sim".to_string(),
                 starting_capital_usd: Decimal::from(10_000),
+                active: true,
             },
         )
         .await
@@ -568,18 +792,28 @@ mod tests {
         }
     }
 
-    /// Day 2 acceptance (HANDOFF §4, D60): a test avatar ends with 7 backtest rows.
+    async fn backtest_decisions(pool: &PgPool, avatar: Uuid) -> Vec<decisions::DecisionRow> {
+        let mut rows = decisions::list_decisions(pool, avatar, SOURCE, 100)
+            .await
+            .unwrap();
+        rows.reverse(); // oldest first, like the equity points
+        rows
+    }
+
+    /// Day 2 acceptance (HANDOFF §4, D60) with the LLM (D63): 7 equity rows
+    /// and 7 decisions, all labeled backtest, one LLM call per day.
     #[sqlx::test]
-    async fn backtest_stores_seven_equity_rows_for_a_test_avatar(pool: PgPool) {
+    async fn backtest_stores_seven_days_of_equity_and_decisions(pool: PgPool) {
         let avatar = create_avatar(&pool).await;
         seed_history(&pool, "rhea-lend-usdc", "14", 40).await;
         seed_history(&pool, "rhea-lend-usdt", "12", 40).await;
+        let llm = fake_llm(ALL_IN_USDC).await;
 
-        run_for_avatar(&pool, avatar, now()).await.unwrap();
-
-        let stored = equity::list_equity(&pool, avatar, "backtest")
+        run_for_avatar(&pool, &llm.client, avatar, now())
             .await
             .unwrap();
+
+        let stored = equity::list_equity(&pool, avatar, SOURCE).await.unwrap();
         // Follows the constant, so changing the window needs no test edit.
         assert_eq!(stored.len(), BACKTEST_DAYS as usize);
         assert_eq!(stored.len(), 7);
@@ -591,12 +825,21 @@ mod tests {
             stored[6].ts,
             Utc.with_ymd_and_hms(2026, 11, 4, 0, 0, 0).unwrap()
         );
-        // Mock picks the 14% village (USDC lending, no swap) on day 1 and
-        // stays there: one entry of gas.
-        assert!(within_a_cent(
-            stored[6].equity_usd,
-            grown(invested(), "14", 7)
-        ));
+        // Every day's state differs (cash, then positions), so no cache hit.
+        assert_eq!(llm.calls(), 7);
+
+        let rows = backtest_decisions(&pool, avatar).await;
+        assert_eq!(rows.len(), 7);
+        // Decisions are stamped at the start of their day (equity at the end).
+        assert_eq!(
+            rows[0].ts,
+            Utc.with_ymd_and_hms(2026, 10, 28, 0, 0, 0).unwrap()
+        );
+        // Day 1 follows the model: all into the 14% village.
+        assert!(rows[0].valid, "{:?}", rows[0].rejected_rule);
+        assert_eq!(rows[0].applied_action["action"], "REBALANCE");
+        assert_eq!(rows[0].model, "fake-model");
+        assert!(stored[6].equity_usd > d("10000"));
         // Nothing is written under another label.
         assert!(
             equity::list_equity(&pool, avatar, "sim")
@@ -604,28 +847,95 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+        assert!(
+            decisions::list_decisions(&pool, avatar, "sim", 100)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[sqlx::test]
-    async fn running_the_backtest_again_replaces_the_rows(pool: PgPool) {
+    async fn the_persona_is_sent_to_the_model(pool: PgPool) {
         let avatar = create_avatar(&pool).await;
         seed_history(&pool, "rhea-lend-usdc", "14", 40).await;
+        let llm = fake_llm(HOLD_ANSWER).await;
 
-        run_for_avatar(&pool, avatar, now()).await.unwrap();
-        run_for_avatar(&pool, avatar, now()).await.unwrap();
-
-        let stored = equity::list_equity(&pool, avatar, "backtest")
+        run_for_avatar(&pool, &llm.client, avatar, now())
             .await
             .unwrap();
+
+        // The whole point of D63: the backtest tests *this* strategy.
+        let requests = llm.requests.lock().unwrap();
+        let system = requests[0]["messages"][0]["content"].as_str().unwrap();
+        assert!(system.contains(PERSONA), "persona missing from the prompt");
+    }
+
+    #[sqlx::test]
+    async fn the_public_reasons_never_contain_the_persona(pool: PgPool) {
+        let avatar = create_avatar(&pool).await;
+        seed_history(&pool, "rhea-lend-usdc", "14", 40).await;
+        let llm = fake_llm(HOLD_ANSWER).await;
+
+        run_for_avatar(&pool, &llm.client, avatar, now())
+            .await
+            .unwrap();
+
+        for row in backtest_decisions(&pool, avatar).await {
+            let reason = row.reason_public.unwrap_or_default();
+            assert!(!reason.contains(PERSONA), "{reason}");
+        }
+    }
+
+    #[sqlx::test]
+    async fn an_unreachable_llm_gives_seven_holds_and_flat_equity(pool: PgPool) {
+        let avatar = create_avatar(&pool).await;
+        seed_history(&pool, "rhea-lend-usdc", "14", 40).await;
+        // Port 9 (discard) on localhost: nothing listens, connection refused.
+        let llm = client("http://127.0.0.1:9");
+
+        let points = run_for_avatar(&pool, &llm, avatar, now()).await.unwrap();
+
+        // The backtest still completes: each day is HOLD, money stays cash.
+        assert!(points.iter().all(|p| p.equity_usd == d("10000")));
+        let rows = backtest_decisions(&pool, avatar).await;
+        assert_eq!(rows.len(), 7);
+        assert!(
+            rows.iter()
+                .all(|row| row.rejected_rule.as_deref() == Some("llm_error"))
+        );
+    }
+
+    #[sqlx::test]
+    async fn running_the_backtest_again_replaces_the_rows_and_uses_the_cache(pool: PgPool) {
+        let avatar = create_avatar(&pool).await;
+        seed_history(&pool, "rhea-lend-usdc", "14", 40).await;
+        let llm = fake_llm(HOLD_ANSWER).await;
+
+        run_for_avatar(&pool, &llm.client, avatar, now())
+            .await
+            .unwrap();
+        run_for_avatar(&pool, &llm.client, avatar, now())
+            .await
+            .unwrap();
+
+        let stored = equity::list_equity(&pool, avatar, SOURCE).await.unwrap();
         assert_eq!(stored.len(), 7);
+        assert_eq!(backtest_decisions(&pool, avatar).await.len(), 7);
+        // Same persona, same past days: the second run is answered by
+        // `llm_cache` and costs no new call.
+        assert_eq!(llm.calls(), 7);
     }
 
     #[sqlx::test]
     async fn short_history_gives_a_shorter_backtest(pool: PgPool) {
         let avatar = create_avatar(&pool).await;
         seed_history(&pool, "rhea-lend-usdc", "14", 3).await;
+        let llm = fake_llm(HOLD_ANSWER).await;
 
-        let points = run_for_avatar(&pool, avatar, now()).await.unwrap();
+        let points = run_for_avatar(&pool, &llm.client, avatar, now())
+            .await
+            .unwrap();
 
         assert_eq!(points.len(), 3);
     }
@@ -633,15 +943,23 @@ mod tests {
     #[sqlx::test]
     async fn no_history_is_an_error(pool: PgPool) {
         let avatar = create_avatar(&pool).await;
+        let llm = fake_llm(HOLD_ANSWER).await;
 
-        let err = run_for_avatar(&pool, avatar, now()).await.unwrap_err();
+        let err = run_for_avatar(&pool, &llm.client, avatar, now())
+            .await
+            .unwrap_err();
 
         assert!(err.to_string().contains("no yield history"), "{err}");
+        assert_eq!(llm.calls(), 0);
     }
 
     #[sqlx::test]
     async fn unknown_avatar_is_an_error(pool: PgPool) {
-        let err = run_for_avatar(&pool, Uuid::nil(), now()).await.unwrap_err();
+        let llm = fake_llm(HOLD_ANSWER).await;
+
+        let err = run_for_avatar(&pool, &llm.client, Uuid::nil(), now())
+            .await
+            .unwrap_err();
 
         assert!(err.to_string().contains("not found"), "{err}");
     }

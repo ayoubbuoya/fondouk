@@ -3,8 +3,9 @@
 //!
 //! "The LLM proposes, code decides": `decide` asks the LLM for an `Action` as
 //! JSON (`prompt`, `llm`), and `guardrails` checks it in Rust. `tick` runs it
-//! for every live avatar. The backtest still uses `mock_decide` (no network,
-//! no cost) until it is switched to the LLM.
+//! for every live avatar, and the create-time backtest calls the same `decide`
+//! once per replayed day (D63). `mock_decide` is now only a simple rule for
+//! the backtest's replay tests (no network, no cost).
 
 pub mod decide;
 pub mod guardrails;
@@ -96,8 +97,9 @@ pub struct MarketState {
     pub positions: BTreeMap<String, Decimal>,
 }
 
-/// Temporary stand-in for the LLM: put everything in the village with the
-/// highest APY today. Returns `HOLD` when already fully there (no pointless
+/// A simple fixed rule, used by the backtest's replay tests (D63: the real
+/// backtest uses the LLM): put everything in the village with the highest APY
+/// today. Returns `HOLD` when already fully there (no pointless
 /// moves) or when no village has data.
 ///
 /// Ties go to the first village in `villages` order, so the result is

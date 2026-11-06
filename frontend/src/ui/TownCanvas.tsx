@@ -96,6 +96,8 @@ export function TownCanvas({ onSelect, onLiveEvent }: TownCanvasProps) {
     townBus.once('town:ready', onReady)
     townBus.on('avatar:selected', onAvatarSelected)
     townBus.on('village:selected', onVillageSelected)
+    // A newly created character is paused, so no live event announces it.
+    townBus.on('avatars:reload', reloadAvatars)
 
     const stopLiveEvents = connectLiveEvents((event) => {
       switch (event.type) {
@@ -123,6 +125,7 @@ export function TownCanvas({ onSelect, onLiveEvent }: TownCanvasProps) {
       townBus.off('town:ready', onReady)
       townBus.off('avatar:selected', onAvatarSelected)
       townBus.off('village:selected', onVillageSelected)
+      townBus.off('avatars:reload', reloadAvatars)
       stopLiveEvents()
       game.destroy(true)
     }

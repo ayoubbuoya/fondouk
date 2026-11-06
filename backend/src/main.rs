@@ -59,11 +59,13 @@ async fn main() -> Result<()> {
         shutdown_rx.clone(),
     ));
 
-    // The agent loop needs an LLM; without LLM_* settings the rest still runs.
-    let agent_task = match &config.llm {
-        Some(llm_config) => Some(tokio::spawn(agent::tick::run(
+    // One LLM client, shared by the agent loop and the create-time backtest
+    // (D63). Without LLM_* settings the rest still runs.
+    let llm = config.llm.as_ref().map(agent::llm::LlmClient::new);
+    let agent_task = match &llm {
+        Some(llm) => Some(tokio::spawn(agent::tick::run(
             db_pool.clone(),
-            agent::llm::LlmClient::new(llm_config),
+            llm.clone(),
             config.agent_tick_interval,
             config.village_stale_after,
             events.clone(),
@@ -88,6 +90,7 @@ async fn main() -> Result<()> {
         http,
         near_rpc_url: config.near_rpc_url.clone(),
         marketplace_contract_id: config.marketplace_contract_id.clone(),
+        llm,
     };
     axum::serve(listener, api::router(app_state))
         .with_graceful_shutdown(async move { indexer::stop_requested(&mut server_shutdown).await })

@@ -1,16 +1,22 @@
 import { useState } from 'react'
 
+import { townBus } from './game/townBus'
 import type { LiveEvent } from './lib/liveEvents'
 import { AvatarPanel } from './ui/AvatarPanel'
+import { CreateAvatarPanel } from './ui/CreateAvatarPanel'
 import { Header } from './ui/Header'
 import { MarketplacePanel } from './ui/MarketplacePanel'
 import { SidePanel } from './ui/SidePanel'
 import { TownCanvas, type Selection } from './ui/TownCanvas'
 import { VillagePanel } from './ui/VillagePanel'
 
+/** The panel on the right: one at a time. */
+type Panel = 'none' | 'marketplace' | 'create'
+
 /**
  * Layout: header on top, town on the left, details panel on the right when
- * something is selected (F8.3, F8.4).
+ * something is selected (F8.3, F8.4), or the marketplace (F11), or the
+ * create-avatar wizard (F3, D63).
  *
  * `refreshKey` goes up when a live event concerns what the panel shows, so
  * the panel reloads without a page refresh (F8.5):
@@ -19,18 +25,25 @@ import { VillagePanel } from './ui/VillagePanel'
  */
 export default function App() {
   const [selection, setSelection] = useState<Selection | null>(null)
-  const [marketplaceOpen, setMarketplaceOpen] = useState(false)
+  const [panel, setPanel] = useState<Panel>('none')
   const [refreshKey, setRefreshKey] = useState(0)
 
-  // One panel at a time: picking something on the map closes the marketplace,
-  // and opening the marketplace clears the map selection.
+  // One panel at a time: picking something on the map closes the marketplace
+  // or the wizard, and opening one of those clears the map selection.
   const select = (next: Selection | null) => {
     setSelection(next)
-    setMarketplaceOpen(false)
+    setPanel('none')
   }
-  const openMarketplace = () => {
+  const open = (next: Panel) => {
     setSelection(null)
-    setMarketplaceOpen(true)
+    setPanel(next)
+  }
+
+  // A new character sends no live event while paused, so the town is told to
+  // reload its list; then its panel opens.
+  const onCreated = (avatarId: string) => {
+    townBus.emit('avatars:reload')
+    select({ kind: 'avatar', id: avatarId })
   }
 
   const onLiveEvent = (event: LiveEvent) => {
@@ -44,12 +57,17 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header onOpenMarketplace={openMarketplace} />
+      <Header onOpenMarketplace={() => open('marketplace')} onCreateAvatar={() => open('create')} />
       <main className="app-main">
         <TownCanvas onSelect={select} onLiveEvent={onLiveEvent} />
-        {marketplaceOpen && (
-          <SidePanel onClose={() => setMarketplaceOpen(false)}>
+        {panel === 'marketplace' && (
+          <SidePanel onClose={() => setPanel('none')}>
             <MarketplacePanel onOpenAvatar={(id) => select({ kind: 'avatar', id })} />
+          </SidePanel>
+        )}
+        {panel === 'create' && (
+          <SidePanel onClose={() => setPanel('none')}>
+            <CreateAvatarPanel onDone={onCreated} />
           </SidePanel>
         )}
         {selection && (
