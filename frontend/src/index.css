@@ -1,0 +1,115 @@
+:root {
+  --bg: #1b1d22;
+  --panel: #262932;
+  --border: #3a3e4a;
+  --text: #e6e6e6;
+  --muted: #9aa0ad;
+  --accent: #e0b04f;
+  --error: #ff8a7a;
+
+  font: 15px/1.4 system-ui, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+}
+
+/* Full-height column: header, then the town takes the rest. */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100svh;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.header-title {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.header-title h1 {
+  margin: 0;
+  font-size: 22px;
+  color: var(--accent);
+}
+
+.header-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.header-wallet {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-account {
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.header-error {
+  color: var(--error);
+  font-size: 13px;
+}
+
+button {
+  font: inherit;
+  padding: 6px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.app-main {
+  flex: 1;
+  min-height: 0;
+}
+
+.town {
+  position: relative;
+  height: 100%;
+}
+
+/* Phaser's Scale.FIT sizes the canvas to this box. */
+.town-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.town-error {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 8px 14px;
+  background: var(--panel);
+  border: 1px solid var(--error);
+  border-radius: 6px;
+  color: var(--error);
+}

@@ -8,7 +8,8 @@ This file is for anyone joining the project (teammates or a coding agent). Read 
 
 ## 1. Current state
 
-- **Phase:** Day 1 to Day 5 backend done (Day 5 on 6 Nov, about 1 day behind the day plan in section 4, no scope cut). Next: switch the backtest to the LLM (D35, D36), then Day 6 (frontend shell).
+- **Phase:** Day 1 to Day 5 backend done, Day 6 frontend shell built (6 Nov, D44). Next: Ayoub's manual check of Day 6 (real wallet login), then the backtest on the LLM (D35), then Day 7 (sprites, tileset, side panels).
+- **Day 6 frontend (6 Nov):** `frontend/` = Vite + React + TypeScript, Phaser 4, NEAR Connect (D46). Town map drawn in code (placeholder until the Day 7 tileset, D45): 4 villages with live APY label, 7-day sparkline and "stale · N h ago" badge, roads and an empty arena. Data: REST through the `/api` dev proxy (D47), live `apr_update` over `/ws` with a 5 s reconnect (D49), React → Phaser through a Phaser EventEmitter (D48). Login button runs the NEP-413 flow against `/auth/*`. 13 vitest tests (D50), lint and build clean. **Not yet tested by hand: a real wallet login and the map in a browser with the backend running.**
 - **Day 5 API (6 Nov):** NEP-413 wallet login with HttpOnly cookie sessions (D37, D38: `/auth/challenge`, `/auth/near`, `/auth/logout`, `/auth/me`), avatar endpoints (`GET /avatars`, `/avatars/{id}`, `…/decisions`, `…/equity`, `POST /avatars` with backtest, `PATCH /avatars/{id}`, D39–D42), `GET /villages/{id}/history`, and `/ws` live events (`apr_update`, `decision`, `avatar_move`, D43). Migration 0007 (`auth_challenges`, `sessions`). 253 tests pass. Login was only tested with locally generated keys: **a real NEAR Connect signature is first tested on Day 6.**
 - **What runs today:** `backend/` (axum + sqlx + Postgres). DefiLlama indexer for the 4 villages (D13, D14), fetching every hour (D19); it stores the full chart, so about 45 days of history are imported (D22). `GET /health`, `GET /villages` (latest yield + stale flag). Tables for users, strategies, avatars, positions, equity, decisions and LLM cache. Cost model (`sim::costs`, D31): pool fee + slippage + gas per step, and a stablecoin swap through the stable pool when the target does not accept the token. Guardrails (`agent::guardrails`, all of SPEC §6, including the 2 cost rules, D32) checked on every action. LLM decision pipeline (`agent::decide`: prompt, OpenAI-compatible call, parse, retry once, HOLD, cache). Agent tick loop (`agent::tick`, every 10 min, only when `LLM_*` is set): per sim avatar it accrues yield for the time since its last tick (D33), decides, moves the paper money paying the cost, and stores positions, cash, the decision and a `sim` equity point in one transaction (D34). Backtest engine pays the same costs, but still uses the mock decision rule (all-in on the best APY, so only `high` risk avatars invest with it; LLM switch is D35). 189 tests pass (the LLM is faked by a local test server). The real LLM call is **not tested yet** (no key, U5/U6). No frontend or contracts yet.
 - **Product code started:** 1 Nov 2026 (hackathon start).
@@ -67,6 +68,13 @@ The official page asks teams to build the project during the hackathon. We did n
 | D41 | (6 Nov) If the backtest fails on create (e.g. no history), the avatar is kept and the answer is 201 with `backtest: null`. Rejected: failing the whole request. | A data gap must not block character creation; the error is logged. |
 | D42 | (6 Nov) `POST /avatars` with `mode: "real"` returns 400 until real mode exists (Day 10). Sprite = 1–32 chars `[a-z0-9_-]` until the sprite list exists (Day 7). | No inert real avatars; no invented sprite names. |
 | D43 | (6 Nov) Live events go through one `tokio::sync::broadcast` channel (`live_events::LiveEvent`): `apr_update` after each indexer round, `decision` and `avatar_move` after each avatar's tick commit. Public data only, never the persona. `avatar_move` = the village holding the most money changed (`null` = all cash). | Every browser gets a copy; a slow browser loses old events instead of slowing the tick. |
+| D44 | (6 Nov) Day 6 (frontend shell) is built **before** D35; D35 follows. Rejected: D35 first (as D36 planned). | Ayoub asked for Day 6; frontend and `backtest::run` do not touch each other. D35 must land before the Day 11 create-avatar flow. |
+| D45 | (6 Nov) Day 6 map is **drawn in code** (Phaser Graphics: roads, arena, coloured buildings). The real tileset, Tiled map and sprites come together on Day 7. Village positions stay the DB `map_x/map_y` (0–400 grid, drawn ×2 on an 800×800 canvas), no migration. Rejected: picking a tileset and drawing a Tiled map on Day 6. | Art is picked once with the sprites; the placeholder already meets "map with live APR labels". |
+| D46 | (6 Nov) Wallet = `@hot-labs/near-connect` used directly (`frontend/src/lib/wallet.ts`). Login = `/auth/challenge` → `connector.connect({ signMessageParams })` (pick wallet + sign in + sign, one popup; `wallet.signMessage` if already connected) → `/auth/near`. Rejected: `near-connect-hooks`. | The hooks pin near-connect `^0.11` and pull in all of near-api-js; we need about 60 lines. |
+| D47 | (6 Nov) The frontend calls the backend under **`/api`**; the Vite dev proxy (and later a Vercel rewrite) strips the prefix. Rejected: proxying each backend path. | Same-origin cookie (D37) with one rule, and no clash between frontend pages (`/avatars/…`) and backend paths. |
+| D48 | (6 Nov) React owns the data (REST + `/ws`) and pushes it to Phaser through `townBus`, a `Phaser.Events.EventEmitter` (`town:ready`, `villages:updated`, `village:history`). | TECH §8 event bus with no new dependency; one owner for the data. |
+| D49 | (6 Nov) The `/ws` client reconnects after a **fixed 5 s** when the socket closes. Rejected: no reconnect; backoff. | A backend restart must not freeze live labels until a reload (F8.5). |
+| D50 | (6 Nov) Frontend tests: **vitest for pure helpers** only (`format.ts`, `parseLiveEvent`). Canvas and wallet are checked by hand. Rejected: no frontend tests. | Cheap and covers the parts with logic; a wallet popup cannot run in a unit test. |
 
 ---
 
@@ -106,7 +114,7 @@ Times are rough. P0 first, always.
 | 3 | 3 Nov | Agent loop: prompt, LLM call, schema parse, guardrails. **Vault spike** (Rhea Lend call flow) | 3 ticks logged for 5 avatars. Spike result written in this file. **Done 5 Nov** |
 | 4 | 4 Nov | Sim ledger + cost model + tests | Cost and accrual tests pass. **Done 6 Nov** |
 | 5 | 5 Nov | REST + WebSocket API, wallet auth | Endpoints return real data. **Done 6 Nov** |
-| 6 | 6 Nov | Frontend shell: React + wallet + Phaser map loads villages | Map with live APR labels |
+| 6 | 6 Nov | Frontend shell: React + wallet + Phaser map loads villages | Map with live APR labels. **Built 6 Nov**, manual check pending |
 | 7 | 7 Nov | Sprites, movement on decisions, side panels | Avatar walks after a decision |
 
 ### Week 2
@@ -144,12 +152,15 @@ SQLX_OFFLINE=true cargo build
 cargo sqlx prepare -- --all-targets
 cargo sqlx prepare --check -- --all-targets   # fails if .sqlx/ is out of date
 
-# not built yet:
-
-# frontend
+# frontend (works today; needs Node 22+ and the backend running on :8080)
 cd frontend
 npm install
-npm run dev
+npm run dev                 # http://localhost:5173, /api/* and /api/ws proxied to the backend (D47)
+npm test                    # vitest
+npm run lint                # oxlint
+npm run build               # tsc type check + production build
+
+# not built yet:
 
 # contracts
 cd contracts/marketplace
@@ -176,6 +187,8 @@ Environment variables. The first five, the `LLM_*` / `AGENT_TICK_SECS` ones and 
 | `LLM_API_KEY` | Key for the provider at `LLM_BASE_URL` (OpenRouter in dev, NEAR AI Cloud for the demo). `LLM_*`: set all three or none; none = agent loop off. |
 | `LLM_MODEL` | Model id for that provider (e.g. `openai/gpt-4o-mini` on OpenRouter) |
 | `LLM_BASE_URL` | Dev: `https://openrouter.ai/api/v1`. Demo: `https://cloud-api.near.ai/v1` (D17) |
+| `VITE_NEAR_NETWORK` | Frontend (`frontend/.env.local`): wallet network, `testnet` (default) or `mainnet`. Must match `NEAR_RPC_URL`. Public, in the browser bundle. |
+| `VITE_WS_URL` | Frontend: live events URL. Empty = `/api/ws` through the dev proxy. In production the backend's `wss://…/ws` (Vercel does not proxy WebSockets, D37). |
 
 ---
 
@@ -203,6 +216,7 @@ Environment variables. The first five, the `LLM_*` / `AGENT_TICK_SECS` ones and 
 | 5 Nov 2026 | Ayoub + Claude | Day 3: guardrails (D27, D29) and MOVE in the backtest; LLM decide pipeline (async-openai 0.43.0, prompt, parse, retry once, HOLD, `llm_cache`); migration 0005 (`decisions`, `llm_cache`); agent tick loop that logs decisions (D30); cost rules moved to Day 4 (D28). Vault spike: U2 partly, U3 flow known (see section 3), Rhea April exploit noted. 151 tests pass. | Day 4: positions + cost model. Ayoub: add `LLM_*` to test a real model (U5, U6); run the U2/U3 near-cli checks. |
 | 6 Nov 2026 | Ayoub + Claude | Day 4: migration 0006 (`positions`, `villages.fee_bps` + `tokens`, fees checked on-chain); kind-aware cost model `sim::costs` (D31); cost guardrails `min_gain`, `cost_too_high` and `no_swap_route` (D28, D32); ledger pays costs and accrues any duration (F6.2); live tick moves paper money, accrues real elapsed time (D33) and stores positions + cash + decision + sim equity in one transaction (D34); backtest pays costs; F6 acceptance test (frequent mover ends below holder). 189 tests pass. | Backtest on the LLM (D35), then Day 5 API. Ayoub: `LLM_*` key (U5, U6), U2/U3 checks. |
 | 6 Nov 2026 | Ayoub + Claude | Day 5 (before D35, D36): migration 0007 (`auth_challenges`, `sessions`); NEP-413 login + cookie sessions (D37, D38); avatar REST endpoints with persona privacy, create + backtest, owner-only PATCH (D39–D42); village history; `/ws` live events via one broadcast channel (D43). New deps: ed25519-dalek, bs58, base64, getrandom, axum `ws`, uuid `serde`; dev: tokio-tungstenite, futures-util. 253 tests pass. | D35 (backtest on the LLM), then Day 6 frontend: first real NEAR Connect login, Vite proxy for same-origin cookies. |
+| 6 Nov 2026 | Ayoub + Claude | Day 6 before D35 (D44): `frontend/` with Vite 8 + React 19 + TypeScript 7, Phaser 4.2.1, `@hot-labs/near-connect` 0.12.0 (D46), vitest (D50), oxlint (template default). Placeholder town drawn in code with live APY labels, 7-day sparklines and stale badges (D45); `/api` proxy (D47); `townBus` (D48); `/ws` client with 5 s reconnect (D49); NEP-413 login button. 13 frontend tests, backend still 253. No backend change. | Ayoub: run backend + `npm run dev`, try a real testnet wallet login. Then D35, then Day 7. |
 
 ---
 

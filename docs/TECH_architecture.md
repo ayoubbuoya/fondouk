@@ -198,7 +198,7 @@ fondouk/
 - Creates the clone row in the database. Idempotent by tx hash.
 
 ### 5.7 api
-REST (built on Day 5 unless marked planned):
+REST (built on Day 5 unless marked planned). The browser reaches these paths with an `/api` prefix that the proxy removes (D47):
 - `GET /villages`, `GET /villages/{id}/history?days=7` (1–30)
 - `GET /avatars?owner=`, `GET /avatars/{id}`, `GET /avatars/{id}/decisions?source=&limit=` (newest first, limit ≤ 100), `GET /avatars/{id}/equity?source=` (`source` is required: backtest, sim and real are never mixed)
 - `POST /avatars` (logged in; create + run the backtest, `backtest: null` if it fails, D41; `mode: real` is 400 until Day 10, D42), `PATCH /avatars/{id}` (owner only: name, sprite, active, persona → new config row; no persona edit on clones, D40)
@@ -294,10 +294,15 @@ Methods:
 
 ## 8. Frontend
 
+Built on Day 6 (`frontend/`): Vite + React + TypeScript, Phaser 4, `@hot-labs/near-connect` (HANDOFF D44–D50).
+
+- All REST calls go to `/api/...`; the Vite dev proxy (Vercel rewrite in production) strips `/api` and forwards to the backend, so the session cookie is same-origin (D37, D47). Live events: `/api/ws` in dev, `VITE_WS_URL` in production; the client reconnects after 5 s (D49).
+- `src/lib/`: `api.ts` (typed REST), `wallet.ts` (NEP-413 login), `liveEvents.ts` (`/ws` + `parseLiveEvent`), `format.ts` (APY / stale labels). `src/game/`: `TownScene.ts`, `townBus.ts`. `src/ui/`: `Header.tsx`, `TownCanvas.tsx`.
+- Day 6 map is drawn in code (D45); the Tiled map below replaces it on Day 7.
 - Phaser scene loads the Tiled map JSON, places villages from `/villages` (map_x, map_y), spawns sprites from `/avatars`.
 - Sprite target position = village with the largest share of that avatar's funds. On `avatar_move` message, the sprite walks there (simple path along the road tiles is enough, no full pathfinding needed).
 - React overlays: header with wallet, side panel (avatar or village details), leaderboard page, marketplace page, create-avatar modal, judge tour.
-- Phaser and React talk through a small event bus (`emit('avatar:selected', id)`).
+- Phaser and React talk through a small event bus: `townBus`, a `Phaser.Events.EventEmitter` (D48). React owns the data and emits `villages:updated` / `village:history`; the scene emits `town:ready`. Later: `avatar:selected`.
 
 ---
 

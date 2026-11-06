@@ -12,9 +12,9 @@ The approval gate, plan-then-explain workflow, simplicity-first, and end-of-task
 
 Fondouk: an AI town on NEAR where each character is an LLM-driven DeFi agent that moves funds between real yield "villages" (Rhea pools), with an on-chain clone marketplace. Built for NEAR HACKATHON (1–14 Nov 2026, deadline 14 Nov 23:59 UTC).
 
-As of 5 Nov 2026 only `backend/` exists (axum + sqlx + Postgres): DefiLlama indexer for 4 villages (with full history import), `GET /health`, `GET /villages`, avatar and equity tables, a paper ledger, a backtest engine (mock decide), risk guardrails, the LLM decide pipeline and an agent tick loop that logs decisions (Day 3). No frontend or contracts yet. The DB design is in `dev-docs/2026-11-02/database-design.md`.
+As of 6 Nov 2026: `backend/` (axum + sqlx + Postgres) has the DefiLlama indexer for 4 villages, paper ledger + cost model, backtest engine (mock decide until D35), guardrails, LLM decide pipeline, live agent tick loop, REST API, NEP-413 wallet login and `/ws` live events (Days 1–5). `frontend/` (Vite + React + TypeScript + Phaser 4 + NEAR Connect) shows the town with live APY labels and a login button (Day 6). No contracts yet. The DB design is in `dev-docs/2026-11-02/database-design.md`.
 
-Read in this order: `docs/HANDOFF.md` (current state, decisions D1–D20, unknowns U1–U7, day plan) → `docs/SPEC.md` (features F1–F12, action set, guardrails) → `docs/TECH_architecture.md` (modules, schema, contracts).
+Read in this order: `docs/HANDOFF.md` (current state, decisions D1–D50, unknowns U1–U7, day plan) → `docs/SPEC.md` (features F1–F12, action set, guardrails) → `docs/TECH_architecture.md` (modules, schema, contracts).
 
 ## Commands
 
@@ -23,9 +23,10 @@ Read in this order: `docs/HANDOFF.md` (current state, decisions D1–D20, unknow
 cd backend && sqlx migrate run && cargo run      # API on 127.0.0.1:8080
 cd backend && cargo test                         # all tests, incl. #[sqlx::test] with temp DBs
 cd backend && cargo clippy --all-targets -- -D warnings
+# frontend (works today; the backend must run on :8080, /api is proxied to it)
+cd frontend && npm install && npm run dev        # http://localhost:5173
+cd frontend && npm test && npm run lint && npm run build
 # planned, not built yet:
-# frontend (React + Vite + Phaser 4)
-cd frontend && npm install && npm run dev
 # contracts (near-sdk-rs)
 cd contracts/marketplace && cargo near build && cargo test
 ```
