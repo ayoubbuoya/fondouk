@@ -1,27 +1,49 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { createGame } from '../game/createGame'
-import { townBus } from '../game/townBus'
-import { getVillageHistory, getVillages } from '../lib/api'
-import { connectLiveEvents } from '../lib/liveEvents'
+import { townBus, type AvatarMoved } from '../game/townBus'
+import { getAvatars, getVillageHistory, getVillages } from '../lib/api'
+import { connectLiveEvents, type LiveEvent } from '../lib/liveEvents'
 
 /** F2.3: the sparkline covers 7 days. */
 const SPARKLINE_DAYS = 7
 
+/** What the user clicked on the map. */
+export type Selection = { kind: 'avatar'; id: string } | { kind: 'village'; id: string }
+
+interface TownCanvasProps {
+  /** A sprite or a building was clicked. */
+  onSelect: (selection: Selection) => void
+  /** Every live event, so open panels can refresh (F8.5). */
+  onLiveEvent: (event: LiveEvent) => void
+}
+
 /**
- * Hosts the Phaser town and feeds it data.
+ * Hosts the Phaser town and feeds it data. Only this component and the scene
+ * use `townBus`; the rest of the app gets plain callbacks.
  *
  * ```text
  * mount ─> createGame ─> TownScene.create ─> "town:ready"
  *            ─> GET /villages             ─> "villages:updated"
- *            ─> GET /villages/{id}/history ─> "village:history" (one per village)
- * /ws apr_update ────────────────────────────> "villages:updated"
+ *            ─> GET /avatars              ─> "avatars:updated"   (after villages,
+ *            ─> GET /villages/{id}/history ─> "village:history"    so sprites never
+ * /ws apr_update  ─────────────────────────> "villages:updated"    walk in from the arena)
+ * /ws avatar_move ─────────────────────────> "avatar:moved" (unknown id: reload /avatars)
+ * /ws decision for an unknown id ──────────> reload /avatars (a new character)
+ * scene "avatar:selected" / "village:selected" ─> onSelect
  * unmount ─> close /ws, destroy the game
  * ```
  */
-export function TownCanvas() {
+export function TownCanvas({ onSelect, onLiveEvent }: TownCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
+  // Callbacks change on every App render; refs keep the effect below mount-only.
+  const onSelectRef = useRef(onSelect)
+  const onLiveEventRef = useRef(onLiveEvent)
+  useEffect(() => {
+    onSelectRef.current = onSelect
+    onLiveEventRef.current = onLiveEvent
+  })
 
   useEffect(() => {
     const container = containerRef.current
@@ -33,12 +55,26 @@ export function TownCanvas() {
     // Aborted on unmount, so late answers are not drawn into a destroyed game.
     const unmounted = new AbortController()
     const isUnmounted = () => unmounted.signal.aborted
+    /** Ids the scene knows, to spot new characters in live events. */
+    const knownAvatars = new Set<string>()
+
+    const loadAvatars = async () => {
+      const avatars = await getAvatars()
+      if (isUnmounted()) return
+      knownAvatars.clear()
+      for (const avatar of avatars) knownAvatars.add(avatar.id)
+      townBus.emit('avatars:updated', avatars)
+    }
+    const reloadAvatars = () => {
+      loadAvatars().catch((err) => console.warn('reloading avatars failed', err))
+    }
 
     const loadTown = async () => {
       const villages = await getVillages()
       if (isUnmounted()) return
       setError(null)
       townBus.emit('villages:updated', villages)
+      await loadAvatars()
       // 4 villages = 4 small parallel requests. A failed sparkline only
       // leaves that one village without a line.
       for (const village of villages) {
@@ -51,23 +87,42 @@ export function TownCanvas() {
     }
     const onReady = () => {
       loadTown().catch((err) => {
-        console.error('loading villages failed', err)
+        console.error('loading the town failed', err)
         if (!isUnmounted()) setError('Cannot reach the Fondouk backend. Is it running?')
       })
     }
+    const onAvatarSelected = (id: string) => onSelectRef.current({ kind: 'avatar', id })
+    const onVillageSelected = (id: string) => onSelectRef.current({ kind: 'village', id })
     townBus.once('town:ready', onReady)
+    townBus.on('avatar:selected', onAvatarSelected)
+    townBus.on('village:selected', onVillageSelected)
 
     const stopLiveEvents = connectLiveEvents((event) => {
-      if (event.type === 'apr_update') {
-        setError(null)
-        townBus.emit('villages:updated', event.villages)
+      switch (event.type) {
+        case 'apr_update':
+          setError(null)
+          townBus.emit('villages:updated', event.villages)
+          break
+        case 'avatar_move':
+          if (knownAvatars.has(event.avatar_id)) {
+            const moved: AvatarMoved = { avatarId: event.avatar_id, to: event.to }
+            townBus.emit('avatar:moved', moved)
+          } else {
+            reloadAvatars()
+          }
+          break
+        case 'decision':
+          if (!knownAvatars.has(event.avatar_id)) reloadAvatars()
+          break
       }
-      // `decision` and `avatar_move` are used from Day 7 (sprites).
+      onLiveEventRef.current(event)
     })
 
     return () => {
       unmounted.abort()
       townBus.off('town:ready', onReady)
+      townBus.off('avatar:selected', onAvatarSelected)
+      townBus.off('village:selected', onVillageSelected)
       stopLiveEvents()
       game.destroy(true)
     }

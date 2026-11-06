@@ -35,7 +35,18 @@ use crate::db::{decisions, equity, positions};
 use crate::live_events::main_village;
 
 const MAX_NAME_CHARS: usize = 32;
-const MAX_SPRITE_CHARS: usize = 32;
+/// The characters a player can pick (F3.1, D54). **Keep in sync** with
+/// `frontend/src/game/sprites.ts`, which holds the art for each id.
+pub const SPRITES: [&str; 8] = [
+    "boy",
+    "princess",
+    "old_man",
+    "hunter",
+    "monk",
+    "noble",
+    "samurai",
+    "ninja_blue",
+];
 const MAX_PERSONA_CHARS: usize = 2000;
 const RISKS: [&str; 3] = ["low", "medium", "high"];
 const GOALS: [&str; 3] = ["steady_income", "max_yield", "protect_capital"];
@@ -451,13 +462,10 @@ fn validate_name(name: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
-/// 1 to 32 of `a-z 0-9 _ -` (D42) until the sprite list exists (Day 7).
+/// Must be one of [`SPRITES`] (F3.1, D54).
 fn validate_sprite(sprite: &str) -> Result<String, String> {
-    let allowed = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-';
-    if sprite.is_empty() || sprite.len() > MAX_SPRITE_CHARS || !sprite.chars().all(allowed) {
-        return Err(format!(
-            "sprite must be 1 to {MAX_SPRITE_CHARS} characters of a-z, 0-9, _ or -"
-        ));
+    if !SPRITES.contains(&sprite) {
+        return Err(format!("sprite must be one of: {}", SPRITES.join(", ")));
     }
     Ok(sprite.to_string())
 }
@@ -489,7 +497,7 @@ mod tests {
     fn create_body() -> Value {
         json!({
             "name": "  Hanna  ",
-            "sprite": "merchant_1",
+            "sprite": "boy",
             "persona": PERSONA,
             "risk": "high",
             "goal": "max_yield",
@@ -578,6 +586,8 @@ mod tests {
             ("name", json!("x".repeat(33))),
             ("sprite", json!("")),
             ("sprite", json!("Merchant 1")),
+            ("sprite", json!("merchant_1")),
+            ("sprite", json!("Boy")),
             ("persona", json!("  ")),
             ("persona", json!("a".repeat(2001))),
             ("risk", json!("yolo")),
@@ -592,6 +602,13 @@ mod tests {
                 validate_create(create_request(body)).is_err(),
                 "{field} = {bad}"
             );
+        }
+    }
+
+    #[test]
+    fn every_listed_sprite_is_accepted() {
+        for sprite in SPRITES {
+            assert_eq!(validate_sprite(sprite).as_deref(), Ok(sprite));
         }
     }
 
@@ -865,12 +882,12 @@ mod tests {
             &state,
             id,
             &alice,
-            json!({ "name": "Yusra", "sprite": "trader_2", "active": false }),
+            json!({ "name": "Yusra", "sprite": "samurai", "active": false }),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["name"], "Yusra");
-        assert_eq!(body["sprite"], "trader_2");
+        assert_eq!(body["sprite"], "samurai");
         assert_eq!(body["active"], false);
     }
 

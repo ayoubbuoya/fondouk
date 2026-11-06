@@ -298,12 +298,11 @@ Methods:
 Built on Day 6 (`frontend/`): Vite + React + TypeScript, Phaser 4, `@hot-labs/near-connect` (HANDOFF D44–D50).
 
 - All REST calls go to `/api/...`; the Vite dev proxy (Vercel rewrite in production) strips `/api` and forwards to the backend, so the session cookie is same-origin (D37, D47). Live events: `/api/ws` in dev, `VITE_WS_URL` in production; the client reconnects after 5 s (D49).
-- `src/lib/`: `api.ts` (typed REST), `wallet.ts` (NEP-413 login), `liveEvents.ts` (`/ws` + `parseLiveEvent`), `format.ts` (APY / stale labels). `src/game/`: `TownScene.ts`, `townBus.ts`. `src/ui/`: `Header.tsx`, `TownCanvas.tsx`.
-- Day 6 map is drawn in code (D45); the Tiled map below replaces it on Day 7.
-- Phaser scene loads the Tiled map JSON, places villages from `/villages` (map_x, map_y), spawns sprites from `/avatars`.
-- Sprite target position = village with the largest share of that avatar's funds. On `avatar_move` message, the sprite walks there (simple path along the road tiles is enough, no full pathfinding needed).
-- React overlays: header with wallet, side panel (avatar or village details), leaderboard page, marketplace page, create-avatar modal, judge tour.
-- Phaser and React talk through a small event bus: `townBus`, a `Phaser.Events.EventEmitter` (D48). React owns the data and emits `villages:updated` / `village:history`; the scene emits `town:ready`. Later: `avatar:selected`.
+- `src/lib/`: `api.ts` (typed REST), `wallet.ts` (NEP-413 login), `liveEvents.ts` (`/ws` + `parseLiveEvent`), `format.ts` (APY, stale, USD and action labels). `src/game/`: `TownScene.ts`, `townBus.ts`, `townMap.ts` (ground tiles), `sprites.ts` (sprite list + walk frames), `walkPath.ts` (placement + walk path). `src/ui/`: `Header.tsx`, `TownCanvas.tsx`, `SidePanel.tsx`, `AvatarPanel.tsx`, `VillagePanel.tsx`, `LineChart.tsx`.
+- Art: Ninja Adventure pack, CC0 (D52), in `public/assets/` with `CREDITS.md`. The ground is a tile array built in code, not a Tiled map (D53): 25×25 tiles of 16 px drawn ×2, roads from each village (DB `map_x/map_y`) to the 5×5 arena.
+- Sprites: 8 ids (D54), the same list as the backend's `api::avatars::SPRITES`. Each character stands at `main_village` (queue on the road in front of the house; all cash = grid in the arena). On `avatar_move` the sprite walks to the arena centre, then to its new spot (D56, no pathfinding: every road meets at the arena).
+- React overlays: header with wallet, side panel (avatar F8.3 or village F8.4; reloaded on relevant live events), later leaderboard page, marketplace page, create-avatar modal, judge tour.
+- Phaser and React talk through a small event bus: `townBus`, a `Phaser.Events.EventEmitter` (D48). React owns the data and emits `villages:updated`, `village:history`, `avatars:updated`, `avatar:moved`; the scene emits `town:ready`, `avatar:selected`, `village:selected`. Only `TownCanvas` and the scene use the bus; `App` gets plain callbacks.
 
 ---
 

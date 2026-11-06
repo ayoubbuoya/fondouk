@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatApy, staleLabel, totalApy } from './format'
+import { actionLabel, formatApy, formatUsd, staleLabel, totalApy } from './format'
 
 describe('totalApy', () => {
   it('adds base and reward APY from decimal strings', () => {
@@ -48,5 +48,43 @@ describe('staleLabel', () => {
 
   it('says so when the village was never fetched', () => {
     expect(staleLabel({ stale: true, last_fetched_at: null }, now)).toBe('stale · no data yet')
+  })
+})
+
+describe('formatUsd', () => {
+  it('formats a decimal string as dollars with cents', () => {
+    expect(formatUsd('10234.5678')).toBe('$10,234.57')
+    expect(formatUsd('0')).toBe('$0.00')
+  })
+
+  it('shows a dash for missing or broken values', () => {
+    expect(formatUsd(null)).toBe('–')
+    expect(formatUsd(undefined)).toBe('–')
+    expect(formatUsd('')).toBe('–')
+    expect(formatUsd('abc')).toBe('–')
+  })
+})
+
+describe('actionLabel', () => {
+  it('labels HOLD and SAY by name only', () => {
+    expect(actionLabel({ action: 'HOLD' })).toBe('HOLD')
+    expect(actionLabel({ action: 'SAY', text: 'hello' })).toBe('SAY')
+  })
+
+  it('shows percent, source and target of a MOVE', () => {
+    expect(actionLabel({ action: 'MOVE', from: 'lend-usdc', to: 'stable4', percent: 40 })).toBe(
+      'MOVE 40% lend-usdc → stable4',
+    )
+  })
+
+  it('lists REBALANCE weights sorted by village id', () => {
+    expect(actionLabel({ action: 'REBALANCE', weights: { 'b-pool': 30, 'a-lend': 70 } })).toBe(
+      'REBALANCE a-lend 70%, b-pool 30%',
+    )
+    expect(actionLabel({ action: 'REBALANCE', weights: {} })).toBe('REBALANCE (all cash)')
+  })
+
+  it('does not crash on an unknown action', () => {
+    expect(actionLabel({ action: 'FLY' } as never)).toBe('FLY')
   })
 })

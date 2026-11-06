@@ -88,10 +88,13 @@ button:disabled {
 .app-main {
   flex: 1;
   min-height: 0;
+  display: flex;
 }
 
 .town {
   position: relative;
+  flex: 1;
+  min-width: 0;
   height: 100%;
 }
 
@@ -112,4 +115,196 @@ button:disabled {
   border: 1px solid var(--error);
   border-radius: 6px;
   color: var(--error);
+}
+
+/* ---- side panel (F8.3, F8.4) ---- */
+
+.side-panel {
+  position: relative;
+  width: 360px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 16px 18px 24px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+}
+
+.side-panel-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 0 9px;
+  font-size: 20px;
+  line-height: 1.4;
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.side-panel h2 {
+  margin: 0;
+  font-size: 19px;
+}
+
+.side-panel h3 {
+  margin: 18px 0 6px;
+  font-size: 14px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.side-panel p {
+  margin: 4px 0;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 36px; /* room for the close button */
+}
+
+.panel-face {
+  image-rendering: pixelated;
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.panel-muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.panel-error {
+  color: var(--error);
+  font-size: 13px;
+}
+
+.panel-big {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.up {
+  color: #7fd17f;
+  font-size: 15px;
+}
+
+.down {
+  color: var(--error);
+  font-size: 15px;
+}
+
+.mono {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+
+/* Mode badge: sim and real always look different (data source labels). */
+.badge {
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.badge-sim {
+  background: #3b5a8a;
+  color: #dbe7ff;
+}
+
+.badge-real {
+  background: #8a5a1e;
+  color: #ffe9c7;
+}
+
+.panel-head .badge {
+  margin-left: auto;
+}
+
+.panel-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.panel-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+button.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  color: var(--text);
+}
+
+button.link:hover:not(:disabled) {
+  background: none;
+  color: var(--accent);
+}
+
+button.link img {
+  image-rendering: pixelated;
+}
+
+.chart {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0;
+  color: var(--accent);
+}
+
+.chart svg {
+  flex: 1;
+  min-width: 0;
+  height: 90px;
+  background: var(--bg);
+  border-radius: 4px;
+}
+
+.chart-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+.decisions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.decisions li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.decision-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.decision-top time {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.decision-rejected {
+  color: #ffd27a;
 }
