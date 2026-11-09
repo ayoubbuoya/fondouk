@@ -28,7 +28,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::auth::AuthUser;
-use super::{ApiError, AppState};
+use super::{ApiError, AppState, near_rpc};
 use crate::backtest;
 use crate::db::avatars::{self, AvatarUpdate, AvatarWithConfig, NewAvatar, NewConfig};
 use crate::db::{decisions, equity, positions};
@@ -55,6 +55,8 @@ const RISKS: [&str; 3] = ["low", "medium", "high"];
 const GOALS: [&str; 3] = ["steady_income", "max_yield", "protect_capital"];
 /// Sim starting capital options in USD (Q-E).
 const STARTING_CAPITALS: [u64; 3] = [1_000, 10_000, 100_000];
+/// Real mode starting capital options in tUSDC / USD.
+pub const REAL_STARTING_CAPITALS: [u64; 4] = [10, 25, 50, 100];
 /// `decisions.source` / `equity_snapshots.source` values; never mixed in one answer.
 const SOURCES: [&str; 3] = ["backtest", "sim", "real"];
 const DEFAULT_DECISIONS_LIMIT: i64 = 10;
@@ -77,6 +79,8 @@ pub struct AvatarSummaryDto {
     /// Where the sprite stands: the village holding the most money, `null`
     /// for all cash (TECH §8).
     pub main_village: Option<String>,
+    pub deposit_tx_hash: Option<String>,
+    pub deposit_token: Option<String>,
 }
 
 /// One avatar in detail (side panel, F8.3).
@@ -285,7 +289,7 @@ pub async fn create_avatar(
             config_id,
             name: valid.name,
             sprite: valid.sprite,
-            mode: valid.mode,
+            mode: valid.mode.clone(),
             starting_capital_usd: Decimal::from(valid.starting_capital_usd),
             active: false,
         },
@@ -294,18 +298,22 @@ pub async fn create_avatar(
     tx.commit().await?;
     tracing::info!(avatar = %id, owner = %user.account_id, "avatar created (paused)");
 
-    let backtest = match &state.llm {
-        None => {
-            tracing::warn!(avatar = %id, "no LLM configured: no backtest on create");
-            None
-        }
-        Some(llm) => match backtest::run_for_avatar(&state.db, llm, id, Utc::now()).await {
-            Ok(points) => Some(points.into_iter().map(equity_dto).collect()),
-            Err(err) => {
-                tracing::warn!(avatar = %id, "backtest on create failed: {err:#}");
+    let backtest = if valid.mode == "real" {
+        None
+    } else {
+        match &state.llm {
+            None => {
+                tracing::warn!(avatar = %id, "no LLM configured: no backtest on create");
                 None
             }
-        },
+            Some(llm) => match backtest::run_for_avatar(&state.db, llm, id, Utc::now()).await {
+                Ok(points) => Some(points.into_iter().map(equity_dto).collect()),
+                Err(err) => {
+                    tracing::warn!(avatar = %id, "backtest on create failed: {err:#}");
+                    None
+                }
+            },
+        }
     };
     let avatar = load_avatar(&state, id).await?;
     let body = CreatedAvatarDto {
@@ -392,6 +400,8 @@ fn summary(avatar: &AvatarWithConfig, held: &BTreeMap<String, Decimal>) -> Avata
         created_at: avatar.created_at,
         equity_usd: avatar.cash_usd + held.values().sum::<Decimal>(),
         main_village: main_village(held),
+        deposit_tx_hash: avatar.deposit_tx_hash.clone(),
+        deposit_token: avatar.deposit_token.clone(),
     }
 }
 
@@ -457,13 +467,17 @@ fn validate_create(request: CreateAvatarRequest) -> Result<ValidCreate, String> 
         return Err("goal must be steady_income, max_yield or protect_capital".to_string());
     }
     match request.mode.as_str() {
-        "sim" => {}
-        // D42: real mode arrives with the vault (Day 10).
-        "real" => return Err("real mode is not available yet".to_string()),
-        _ => return Err("mode must be sim".to_string()),
-    }
-    if !STARTING_CAPITALS.contains(&request.starting_capital_usd) {
-        return Err("starting_capital_usd must be 1000, 10000 or 100000".to_string());
+        "sim" => {
+            if !STARTING_CAPITALS.contains(&request.starting_capital_usd) {
+                return Err("starting_capital_usd must be 1000, 10000 or 100000".to_string());
+            }
+        }
+        "real" => {
+            if !REAL_STARTING_CAPITALS.contains(&request.starting_capital_usd) {
+                return Err("starting_capital_usd for real mode must be 10, 25, 50 or 100".to_string());
+            }
+        }
+        _ => return Err("mode must be sim or real".to_string()),
     }
     Ok(ValidCreate {
         name,
@@ -502,6 +516,176 @@ fn validate_persona(persona: &str) -> Result<String, String> {
         ));
     }
     Ok(persona.to_string())
+}
+
+const VAULT_EVENT_STANDARD: &str = "fondouk_vault";
+const VAULT_EVENT_NAME: &str = "vault_deposited";
+const EVENT_PREFIX: &str = "EVENT_JSON:";
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfirmDepositRequest {
+    pub tx_hash: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct VaultDeposit {
+    avatar_id: Uuid,
+    owner: String,
+    token: String,
+    amount_usd: Decimal,
+}
+
+fn is_valid_tx_hash(hash: &str) -> bool {
+    (40..=50).contains(&hash.len()) && hash.bytes().all(|b| b.is_ascii_alphanumeric())
+}
+
+fn parse_vault_deposit(transaction: &Value, vault_contract_id: &str) -> Result<VaultDeposit, String> {
+    if transaction["final_execution_status"] != "FINAL" {
+        return Err("transaction is not final yet, try again in a few seconds".to_string());
+    }
+    if transaction["status"].get("Failure").is_some() {
+        return Err("transaction failed".to_string());
+    }
+
+    let mut events = Vec::new();
+    let outcomes = transaction["receipts_outcome"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    for receipt in outcomes {
+        let outcome = &receipt["outcome"];
+        if outcome["executor_id"] != vault_contract_id || outcome["status"].get("Failure").is_some() {
+            continue;
+        }
+        for log in outcome["logs"].as_array().into_iter().flatten() {
+            if let Some(event) = log.as_str().and_then(parse_vault_event_log) {
+                events.push(event);
+            }
+        }
+    }
+    match events.len() {
+        1 => events.remove(0),
+        0 => Err("no vault deposit found in this transaction".to_string()),
+        _ => Err("this transaction holds several deposits, which is not supported".to_string()),
+    }
+}
+
+fn parse_vault_event_log(log: &str) -> Option<Result<VaultDeposit, String>> {
+    let json_text = log.strip_prefix(EVENT_PREFIX)?.trim();
+    let value: Value = serde_json::from_str(json_text).ok()?;
+    if value["standard"] != VAULT_EVENT_STANDARD || value["event"] != VAULT_EVENT_NAME {
+        return None;
+    }
+    let data = match &value["data"] {
+        Value::Object(_) => &value["data"],
+        Value::Array(items) if items.len() == 1 => &items[0],
+        _ => return Some(Err("event data is not an object".to_string())),
+    };
+
+    let avatar_id_str = data["avatar_id"].as_str()?;
+    let avatar_id = match Uuid::parse_str(avatar_id_str) {
+        Ok(id) => id,
+        Err(_) => return Some(Err("invalid avatar_id in event".to_string())),
+    };
+    let owner = data["owner"].as_str()?.to_string();
+    let token = data["token"].as_str()?.to_string();
+    let raw_amount_str = data["amount"].as_str()?;
+    let raw_amount: u128 = raw_amount_str.parse().ok()?;
+    // 6 decimals: 10^6 units = 1 USD
+    let amount_usd = Decimal::from(raw_amount) / Decimal::from(1_000_000);
+
+    Some(Ok(VaultDeposit {
+        avatar_id,
+        owner,
+        token,
+        amount_usd,
+    }))
+}
+
+/// `POST /avatars/{id}/confirm_deposit`: confirms that an on-chain deposit was made
+/// into the Vault for this real-mode avatar.
+pub async fn confirm_deposit(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Json(request): Json<ConfirmDepositRequest>,
+) -> Result<Json<AvatarDetailDto>, ApiError> {
+    let avatar = load_avatar(&state, id).await?;
+    if avatar.owner != user.account_id {
+        return Err(ApiError::Forbidden);
+    }
+    if avatar.mode != "real" {
+        return Err(ApiError::BadRequest(
+            "only real mode avatars need an on-chain deposit".to_string(),
+        ));
+    }
+    let held = positions::load_positions(&state.db, id).await?;
+    if avatar.deposit_tx_hash.is_some() {
+        return Ok(Json(detail(avatar, held, Some(&user))));
+    }
+
+    let tx_hash = request.tx_hash.trim();
+    if !is_valid_tx_hash(tx_hash) {
+        return Err(ApiError::BadRequest("invalid transaction hash".to_string()));
+    }
+
+    let tx = near_rpc::fetch_transaction(
+        &state.http,
+        &state.near_rpc_url,
+        tx_hash,
+        &user.account_id,
+    )
+    .await?;
+    let Some(tx) = tx else {
+        return Err(ApiError::BadRequest(
+            "transaction not found on NEAR RPC or still pending".to_string(),
+        ));
+    };
+
+    let deposit = parse_vault_deposit(&tx, &state.vault_contract_id)
+        .map_err(ApiError::BadRequest)?;
+
+    if deposit.avatar_id != id {
+        return Err(ApiError::BadRequest(
+            "deposit is for a different avatar".to_string(),
+        ));
+    }
+    if deposit.owner != user.account_id {
+        return Err(ApiError::BadRequest(
+            "deposit was sent by a different account".to_string(),
+        ));
+    }
+    if deposit.token != state.test_token_contract_id {
+        return Err(ApiError::BadRequest(format!(
+            "deposit used token {} instead of {}",
+            deposit.token, state.test_token_contract_id
+        )));
+    }
+
+    let mut db_tx = state.db.begin().await?;
+    avatars::confirm_deposit(
+        &mut *db_tx,
+        id,
+        deposit.amount_usd,
+        tx_hash,
+        &deposit.token,
+    )
+    .await?;
+    equity::insert_equity_point(
+        &mut *db_tx,
+        id,
+        "real",
+        &equity::EquityPoint {
+            ts: Utc::now(),
+            equity_usd: deposit.amount_usd,
+        },
+    )
+    .await?;
+    db_tx.commit().await?;
+
+    let updated = load_avatar(&state, id).await?;
+    Ok(Json(detail(updated, held, Some(&user))))
 }
 
 #[cfg(test)]
@@ -638,11 +822,46 @@ mod tests {
     }
 
     #[test]
-    fn real_mode_says_it_is_not_available_yet() {
+    fn real_mode_is_accepted_with_valid_capital() {
         let mut body = create_body();
         body["mode"] = json!("real");
-        let err = validate_create(create_request(body)).unwrap_err();
-        assert!(err.contains("not available yet"));
+        body["starting_capital_usd"] = json!(50);
+        let valid = validate_create(create_request(body)).unwrap();
+        assert_eq!(valid.mode, "real");
+        assert_eq!(valid.starting_capital_usd, 50);
+
+        // Invalid capital rejected
+        let mut invalid_body = create_body();
+        invalid_body["mode"] = json!("real");
+        invalid_body["starting_capital_usd"] = json!(1000);
+        let err = validate_create(create_request(invalid_body)).unwrap_err();
+        assert!(err.contains("starting_capital_usd for real mode"));
+    }
+
+    #[test]
+    fn test_parse_vault_deposit_event() {
+        let avatar_id = Uuid::from_u128(12345);
+        let log = format!(
+            "EVENT_JSON:{{\"standard\":\"fondouk_vault\",\"version\":\"1.0.0\",\"event\":\"vault_deposited\",\"data\":{{\"avatar_id\":\"{}\",\"owner\":\"alice.testnet\",\"token\":\"usdc.fondouk.testnet\",\"amount\":\"50000000\"}}}}",
+            avatar_id
+        );
+        let tx = json!({
+            "final_execution_status": "FINAL",
+            "status": { "SuccessValue": "" },
+            "receipts_outcome": [{
+                "outcome": {
+                    "executor_id": "vault.fondouk.testnet",
+                    "status": { "SuccessValue": "" },
+                    "logs": [log]
+                }
+            }]
+        });
+
+        let deposit = parse_vault_deposit(&tx, "vault.fondouk.testnet").unwrap();
+        assert_eq!(deposit.avatar_id, avatar_id);
+        assert_eq!(deposit.owner, "alice.testnet");
+        assert_eq!(deposit.token, "usdc.fondouk.testnet");
+        assert_eq!(deposit.amount_usd, Decimal::from(50));
     }
 
     #[test]
@@ -965,6 +1184,19 @@ mod tests {
                 ts: Utc::now(),
                 equity_usd: Decimal::from(10_001),
             },
+        )
+        .await
+        .unwrap();
+
+        equity::replace_backtest_equity(
+            &mut pool.acquire().await.unwrap(),
+            id,
+            &(1..=7)
+                .map(|day| equity::EquityPoint {
+                    ts: Utc::now() - chrono::Duration::days(day),
+                    equity_usd: Decimal::from(10_000),
+                })
+                .collect::<Vec<_>>(),
         )
         .await
         .unwrap();

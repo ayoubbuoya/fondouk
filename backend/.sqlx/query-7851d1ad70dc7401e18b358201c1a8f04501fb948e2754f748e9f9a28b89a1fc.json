@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,\n               a.active, a.cloned_from, a.listed, a.created_at,\n               c.id AS config_id, c.persona, c.risk, c.goal,\n               c.created_by AS config_created_by\n        FROM avatars a\n        JOIN avatar_configs c ON c.id = a.config_id\n        WHERE $1::TEXT IS NULL OR a.owner = $1\n        ORDER BY a.created_at, a.id\n        ",
+  "query": "\n        SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,\n               a.active, a.cloned_from, a.listed, a.created_at,\n               c.id AS config_id, c.persona, c.risk, c.goal,\n               c.created_by AS config_created_by,\n               a.deposit_tx_hash, a.deposit_token\n        FROM avatars a\n        JOIN avatar_configs c ON c.id = a.config_id\n        WHERE a.id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -178,11 +178,33 @@
             "name": "created_by"
           }
         }
+      },
+      {
+        "ordinal": 16,
+        "name": "deposit_tx_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "deposit_tx_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "deposit_token",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "deposit_token"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -201,8 +223,10 @@
       false,
       false,
       false,
-      false
+      false,
+      true,
+      true
     ]
   },
-  "hash": "4b110ab2a7719ba5c2f916773827260097b8f25ea6f4a6e4212fbf5e957d82aa"
+  "hash": "7851d1ad70dc7401e18b358201c1a8f04501fb948e2754f748e9f9a28b89a1fc"
 }

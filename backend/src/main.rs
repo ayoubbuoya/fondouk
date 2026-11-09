@@ -90,6 +90,8 @@ async fn main() -> Result<()> {
         http,
         near_rpc_url: config.near_rpc_url.clone(),
         marketplace_contract_id: config.marketplace_contract_id.clone(),
+        vault_contract_id: config.vault_contract_id.clone(),
+        test_token_contract_id: config.test_token_contract_id.clone(),
         llm,
     };
     axum::serve(listener, api::router(app_state))

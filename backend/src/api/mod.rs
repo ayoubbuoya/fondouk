@@ -48,6 +48,10 @@ pub struct AppState {
     pub near_rpc_url: String,
     /// `MARKETPLACE_CONTRACT_ID`: the only contract whose events create clones.
     pub marketplace_contract_id: String,
+    /// `VAULT_CONTRACT_ID`.
+    pub vault_contract_id: String,
+    /// `TEST_TOKEN_CONTRACT_ID`.
+    pub test_token_contract_id: String,
     /// The same LLM client as the tick loop, for the backtest on create (D63).
     /// `None` when `LLM_*` is not set: avatars are still created, without a
     /// backtest.
@@ -74,6 +78,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/avatars/{id}/decisions", get(avatars::list_decisions))
         .route("/avatars/{id}/equity", get(avatars::list_equity))
+        .route(
+            "/avatars/{id}/confirm_deposit",
+            post(avatars::confirm_deposit),
+        )
         .route("/marketplace/listings", get(marketplace::list_listings))
         .route("/marketplace/claim", post(marketplace::claim_purchase))
         .route("/ws", get(ws::ws_handler))
@@ -152,6 +160,8 @@ pub(crate) mod tests {
             http: reqwest::Client::new(),
             near_rpc_url: "http://127.0.0.1:9/".to_string(),
             marketplace_contract_id: "marketplace.test".to_string(),
+            vault_contract_id: "vault.test".to_string(),
+            test_token_contract_id: "token.test".to_string(),
             llm: None,
         }
     }

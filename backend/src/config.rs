@@ -34,6 +34,12 @@ const DEFAULT_NEAR_RPC_URL: &str = "https://test.rpc.fastnear.com";
 /// deployed on testnet on Day 8 (D57).
 const DEFAULT_MARKETPLACE_CONTRACT_ID: &str = "marketplace.fondouk.testnet";
 
+/// Vault contract used when `VAULT_CONTRACT_ID` is unset.
+const DEFAULT_VAULT_CONTRACT_ID: &str = "vault.fondouk.testnet";
+
+/// Test token contract used when `TEST_TOKEN_CONTRACT_ID` is unset.
+const DEFAULT_TEST_TOKEN_CONTRACT_ID: &str = "usdc.fondouk.testnet";
+
 /// Where the LLM lives (D17). `Debug` is written by hand so the API key is
 /// never printed.
 #[derive(Clone, PartialEq, Eq)]
@@ -84,6 +90,10 @@ pub struct Config {
     /// Marketplace contract account (`MARKETPLACE_CONTRACT_ID`). Only events
     /// emitted by this account count as a clone purchase (F11.3).
     pub marketplace_contract_id: String,
+    /// Vault contract account (`VAULT_CONTRACT_ID`).
+    pub vault_contract_id: String,
+    /// Test token contract account (`TEST_TOKEN_CONTRACT_ID`).
+    pub test_token_contract_id: String,
 }
 
 impl Config {
@@ -111,6 +121,10 @@ impl Config {
             near_rpc_url: parse_near_rpc_url(std::env::var("NEAR_RPC_URL").ok())?,
             marketplace_contract_id: parse_marketplace_contract_id(
                 std::env::var("MARKETPLACE_CONTRACT_ID").ok(),
+            ),
+            vault_contract_id: parse_vault_contract_id(std::env::var("VAULT_CONTRACT_ID").ok()),
+            test_token_contract_id: parse_test_token_contract_id(
+                std::env::var("TEST_TOKEN_CONTRACT_ID").ok(),
             ),
         })
     }
@@ -256,6 +270,20 @@ fn parse_near_rpc_url(value: Option<String>) -> Result<String> {
 
 /// Parses `MARKETPLACE_CONTRACT_ID`, falling back to the testnet deployment.
 /// A blank value counts as unset.
+fn parse_vault_contract_id(value: Option<String>) -> String {
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| DEFAULT_VAULT_CONTRACT_ID.to_string())
+}
+
+fn parse_test_token_contract_id(value: Option<String>) -> String {
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| DEFAULT_TEST_TOKEN_CONTRACT_ID.to_string())
+}
+
 fn parse_marketplace_contract_id(value: Option<String>) -> String {
     value
         .map(|v| v.trim().to_string())
@@ -333,6 +361,8 @@ mod tests {
             agent_tick_interval: Duration::from_secs(600),
             near_rpc_url: DEFAULT_NEAR_RPC_URL.to_string(),
             marketplace_contract_id: DEFAULT_MARKETPLACE_CONTRACT_ID.to_string(),
+            vault_contract_id: DEFAULT_VAULT_CONTRACT_ID.to_string(),
+            test_token_contract_id: DEFAULT_TEST_TOKEN_CONTRACT_ID.to_string(),
         };
 
         let printed = format!("{config:?}");

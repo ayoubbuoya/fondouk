@@ -57,6 +57,8 @@ export interface AvatarSummary {
   equity_usd: string
   /** Village holding the most money; `null` = all cash (stands in the arena). */
   main_village: string | null
+  deposit_tx_hash: string | null
+  deposit_token: string | null
 }
 
 /** `GET /avatars/{id}`. The persona is never read by the UI here (D7). */
@@ -105,8 +107,8 @@ export interface CreateAvatarRequest {
   persona: string
   risk: AvatarDetail['risk']
   goal: AvatarDetail['goal']
-  /** Only `sim` until the vault exists (D42). */
-  mode: 'sim'
+  /** `sim` (paper ledger) or `real` (vault-deposited). */
+  mode: 'sim' | 'real'
   starting_capital_usd: number
 }
 
@@ -264,4 +266,11 @@ export async function getMe(): Promise<string | null> {
 
 export function logoutSession(): Promise<void> {
   return request('POST', '/auth/logout')
+}
+
+/**
+ * Confirms an on-chain deposit to the Vault for a Real Mode avatar.
+ */
+export function confirmDeposit(avatarId: string, txHash: string): Promise<AvatarDetail> {
+  return request('POST', `/avatars/${avatarId}/confirm_deposit`, { tx_hash: txHash })
 }

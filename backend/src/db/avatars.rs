@@ -60,6 +60,8 @@ pub struct AvatarWithConfig {
     /// Who wrote the strategy (`avatar_configs.created_by`). Only this account
     /// may read the persona (D39); for a clone it is the creator, not the buyer.
     pub config_created_by: String,
+    pub deposit_tx_hash: Option<String>,
+    pub deposit_token: Option<String>,
 }
 
 /// The fields `PATCH /avatars/:id` may change (D40). The caller passes the
@@ -228,6 +230,34 @@ pub async fn update_cash<'e>(
     Ok(())
 }
 
+/// Confirms an on-chain deposit for a real mode avatar: funds it with the deposited
+/// amount, records the tx hash and token, and activates it.
+pub async fn confirm_deposit<'e>(
+    executor: impl PgExecutor<'e>,
+    avatar_id: Uuid,
+    amount_usd: Decimal,
+    tx_hash: &str,
+    token: &str,
+) -> sqlx::Result<()> {
+    let result = sqlx::query!(
+        r#"
+        UPDATE avatars
+        SET cash_usd = $2, starting_capital_usd = $2, deposit_tx_hash = $3, deposit_token = $4, active = true
+        WHERE id = $1
+        "#,
+        avatar_id,
+        amount_usd,
+        tx_hash,
+        token,
+    )
+    .execute(executor)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(sqlx::Error::RowNotFound);
+    }
+    Ok(())
+}
+
 /// Loads a character and its strategy, or `None` when the id is unknown.
 pub async fn get_avatar_with_config(
     pool: &PgPool,
@@ -239,7 +269,8 @@ pub async fn get_avatar_with_config(
         SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,
                a.active, a.cloned_from, a.listed, a.created_at,
                c.id AS config_id, c.persona, c.risk, c.goal,
-               c.created_by AS config_created_by
+               c.created_by AS config_created_by,
+               a.deposit_tx_hash, a.deposit_token
         FROM avatars a
         JOIN avatar_configs c ON c.id = a.config_id
         WHERE a.id = $1
@@ -264,7 +295,8 @@ pub async fn list_avatars(
         SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,
                a.active, a.cloned_from, a.listed, a.created_at,
                c.id AS config_id, c.persona, c.risk, c.goal,
-               c.created_by AS config_created_by
+               c.created_by AS config_created_by,
+               a.deposit_tx_hash, a.deposit_token
         FROM avatars a
         JOIN avatar_configs c ON c.id = a.config_id
         WHERE $1::TEXT IS NULL OR a.owner = $1
@@ -313,7 +345,8 @@ pub async fn list_active_avatars(pool: &PgPool, mode: &str) -> sqlx::Result<Vec<
         SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,
                a.active, a.cloned_from, a.listed, a.created_at,
                c.id AS config_id, c.persona, c.risk, c.goal,
-               c.created_by AS config_created_by
+               c.created_by AS config_created_by,
+               a.deposit_tx_hash, a.deposit_token
         FROM avatars a
         JOIN avatar_configs c ON c.id = a.config_id
         WHERE a.active AND a.mode = $1

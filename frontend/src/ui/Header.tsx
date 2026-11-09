@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { ApiError } from '../lib/api'
-import { currentAccount, login, logout } from '../lib/wallet'
+import { claimFaucet, currentAccount, login, logout } from '../lib/wallet'
 
 /** `undefined` = still asking the backend; `null` = nobody logged in. */
 type Account = string | null | undefined
@@ -20,6 +20,8 @@ interface HeaderProps {
 export function Header({ onOpenMarketplace, onCreateAvatar }: HeaderProps) {
   const [account, setAccount] = useState<Account>(undefined)
   const [busy, setBusy] = useState(false)
+  const [faucetBusy, setFaucetBusy] = useState(false)
+  const [faucetMessage, setFaucetMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -31,6 +33,7 @@ export function Header({ onOpenMarketplace, onCreateAvatar }: HeaderProps) {
   const run = async (action: () => Promise<void>) => {
     setBusy(true)
     setError(null)
+    setFaucetMessage(null)
     try {
       await action()
     } catch (err) {
@@ -47,6 +50,21 @@ export function Header({ onOpenMarketplace, onCreateAvatar }: HeaderProps) {
     setAccount(null)
   })
 
+  const onClaimFaucet = async () => {
+    setFaucetBusy(true)
+    setError(null)
+    setFaucetMessage(null)
+    try {
+      await claimFaucet()
+      setFaucetMessage('100 tUSDC claimed!')
+    } catch (err) {
+      console.error(err)
+      setError('Faucet claim failed or cancelled.')
+    } finally {
+      setFaucetBusy(false)
+    }
+  }
+
   return (
     <header className="header">
       <div className="header-title">
@@ -57,6 +75,7 @@ export function Header({ onOpenMarketplace, onCreateAvatar }: HeaderProps) {
         <button type="button" onClick={onOpenMarketplace}>
           Marketplace
         </button>
+        {faucetMessage && <span className="header-success" style={{ color: '#4ade80', fontSize: '0.85rem' }}>{faucetMessage}</span>}
         {error && <span className="header-error">{error}</span>}
         {account === undefined ? null : account === null ? (
           <button type="button" onClick={onLogin} disabled={busy}>
@@ -64,6 +83,14 @@ export function Header({ onOpenMarketplace, onCreateAvatar }: HeaderProps) {
           </button>
         ) : (
           <>
+            <button
+              type="button"
+              onClick={onClaimFaucet}
+              disabled={faucetBusy || busy}
+              title="Claim 100 Test USD (tUSDC) for Real Mode avatars"
+            >
+              {faucetBusy ? 'Claiming…' : '🚰 Faucet (100 tUSDC)'}
+            </button>
             <button type="button" onClick={onCreateAvatar}>
               Create avatar
             </button>

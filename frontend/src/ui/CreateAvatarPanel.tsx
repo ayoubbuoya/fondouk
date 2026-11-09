@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { SPRITES, faceUrl } from '../game/sprites'
 import {
   ApiError,
+  confirmDeposit,
   createAvatar,
   getDecisions,
   updateAvatar,
@@ -14,6 +15,7 @@ import {
   GOALS,
   MAX_NAME_CHARS,
   MAX_PERSONA_CHARS,
+  REAL_STARTING_CAPITALS,
   RISKS,
   STARTING_CAPITALS,
   toCreateRequest,
@@ -22,6 +24,7 @@ import {
   type CreateAvatarForm,
 } from '../lib/createAvatar'
 import { actionLabel, formatUsd } from '../lib/format'
+import { depositToVault } from '../lib/wallet'
 import { LineChart } from './LineChart'
 
 interface CreateAvatarPanelProps {
@@ -55,6 +58,7 @@ const EMPTY_FORM: CreateAvatarForm = {
   risk: 'medium',
   goal: 'steady_income',
   starting_capital_usd: 10_000,
+  mode: 'sim',
 }
 
 /**
@@ -114,11 +118,23 @@ export function CreateAvatarPanel({ onDone }: CreateAvatarPanelProps) {
     setStarting(true)
     setError(null)
     try {
-      await updateAvatar(id, { active: true })
+      if (form.mode === 'real') {
+        const amountUnits = (form.starting_capital_usd * 1_000_000).toString()
+        const txHash = await depositToVault(id, amountUnits)
+        await confirmDeposit(id, txHash)
+      } else {
+        await updateAvatar(id, { active: true })
+      }
       onDone(id, true)
     } catch (err) {
-      console.error('starting the character failed', err)
-      setError('Could not start it. It stays paused; you can start it from its panel.')
+      console.error('starting or depositing for the character failed', err)
+      if (form.mode === 'real') {
+        setError(
+          'Vault deposit or confirmation failed. Your avatar was created paused; you can deposit and activate it later from its panel.',
+        )
+      } else {
+        setError('Could not start it. It stays paused; you can start it from its panel.')
+      }
       setStarting(false)
     }
   }
@@ -126,7 +142,9 @@ export function CreateAvatarPanel({ onDone }: CreateAvatarPanelProps) {
   return (
     <>
       <h2>Create a character</h2>
-      <p className="panel-muted">Step {stepNumber(step)} of 3 · simulation mode (paper money)</p>
+      <p className="panel-muted">
+        Step {stepNumber(step)} of 3 · {form.mode === 'real' ? 'real mode (tUSDC vault)' : 'simulation mode (paper money)'}
+      </p>
       {error && <p className="notice notice-error">{error}</p>}
 
       {step === 'details' && (
@@ -157,6 +175,32 @@ export function CreateAvatarPanel({ onDone }: CreateAvatarPanelProps) {
               ))}
             </div>
           </fieldset>
+
+          <label>
+            Mode
+            <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.35rem', marginBottom: '0.5rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="mode"
+                  value="sim"
+                  checked={form.mode === 'sim'}
+                  onChange={() => update({ mode: 'sim', starting_capital_usd: 10_000 })}
+                />
+                Simulation (paper money)
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="mode"
+                  value="real"
+                  checked={form.mode === 'real'}
+                  onChange={() => update({ mode: 'real', starting_capital_usd: 50 })}
+                />
+                Real Mode (on-chain Vault)
+              </label>
+            </div>
+          </label>
 
           <label>
             Risk level
@@ -190,19 +234,41 @@ export function CreateAvatarPanel({ onDone }: CreateAvatarPanelProps) {
             </select>
           </label>
 
-          <label>
-            Starting capital (paper)
-            <select
-              value={form.starting_capital_usd}
-              onChange={(event) => update({ starting_capital_usd: Number(event.target.value) })}
-            >
-              {STARTING_CAPITALS.map((usd) => (
-                <option key={usd} value={usd}>
-                  {formatUsd(String(usd))}
-                </option>
-              ))}
-            </select>
-          </label>
+          {form.mode === 'real' ? (
+            <>
+              <label>
+                Deposit amount (tUSDC)
+                <select
+                  value={form.starting_capital_usd}
+                  onChange={(event) => update({ starting_capital_usd: Number(event.target.value) })}
+                >
+                  {REAL_STARTING_CAPITALS.map((usd) => (
+                    <option key={usd} value={usd}>
+                      {usd} tUSDC
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="panel-muted">
+                Real on-chain deposit to the Fondouk Vault contract on NEAR testnet. Need test tokens?
+                Claim 100 tUSDC from the faucet in the header above.
+              </p>
+            </>
+          ) : (
+            <label>
+              Starting capital (paper)
+              <select
+                value={form.starting_capital_usd}
+                onChange={(event) => update({ starting_capital_usd: Number(event.target.value) })}
+              >
+                {STARTING_CAPITALS.map((usd) => (
+                  <option key={usd} value={usd}>
+                    {formatUsd(String(usd))}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <div className="form-actions">
             <button type="button" onClick={goToStrategy}>
@@ -335,7 +401,13 @@ function BacktestResult({ result, starting, onStart, onKeepPaused }: BacktestRes
           Keep paused
         </button>
         <button type="button" onClick={onStart} disabled={starting}>
-          {starting ? 'Starting…' : 'Start'}
+          {starting
+            ? avatar.mode === 'real'
+              ? 'Depositing & Starting…'
+              : 'Starting…'
+            : avatar.mode === 'real'
+              ? `Deposit ${avatar.starting_capital_usd} tUSDC & Start`
+              : 'Start'}
         </button>
       </div>
     </>

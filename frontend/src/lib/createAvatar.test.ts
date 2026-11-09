@@ -14,6 +14,7 @@ const valid: CreateAvatarForm = {
   risk: 'medium',
   goal: 'steady_income',
   starting_capital_usd: 10_000,
+  mode: 'sim',
 }
 
 describe('validateCreateForm', () => {
@@ -40,6 +41,11 @@ describe('validateCreateForm', () => {
   it('refuses a starting capital the backend does not offer', () => {
     expect(validateCreateForm({ ...valid, starting_capital_usd: 5_000 })).toMatch(/capital/)
   })
+
+  it('validates real mode deposit options', () => {
+    expect(validateCreateForm({ ...valid, mode: 'real', starting_capital_usd: 50 })).toBeNull()
+    expect(validateCreateForm({ ...valid, mode: 'real', starting_capital_usd: 10_000 })).toMatch(/tUSDC/)
+  })
 })
 
 describe('validateDetails', () => {
@@ -47,10 +53,21 @@ describe('validateDetails', () => {
     expect(validateDetails({ ...valid, persona: '' })).toBeNull()
     expect(validateDetails({ ...valid, name: '' })).toMatch(/name/)
   })
+
+  it('validates real mode capital options', () => {
+    expect(validateDetails({ ...valid, mode: 'real', starting_capital_usd: 10 })).toBeNull()
+    expect(validateDetails({ ...valid, mode: 'real', starting_capital_usd: 500 })).toMatch(/tUSDC/)
+  })
 })
 
 describe('toCreateRequest', () => {
-  it('trims the name and sets sim mode', () => {
+  it('trims the name and preserves mode', () => {
     expect(toCreateRequest(valid)).toEqual({ ...valid, name: 'Hanna', mode: 'sim' })
+    expect(toCreateRequest({ ...valid, mode: 'real', starting_capital_usd: 50 })).toEqual({
+      ...valid,
+      name: 'Hanna',
+      mode: 'real',
+      starting_capital_usd: 50,
+    })
   })
 })

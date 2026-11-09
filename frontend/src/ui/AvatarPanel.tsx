@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { faceUrl } from '../game/sprites'
 import {
+  confirmDeposit,
   getAvatar,
   getDecisions,
   getEquity,
@@ -11,7 +12,7 @@ import {
   type EquityPoint,
 } from '../lib/api'
 import { actionLabel, formatUsd } from '../lib/format'
-import { currentAccount } from '../lib/wallet'
+import { currentAccount, depositToVault, withdrawFromVault } from '../lib/wallet'
 import { LineChart } from './LineChart'
 
 interface AvatarPanelProps {
@@ -50,6 +51,10 @@ export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
   const [error, setError] = useState<string | null>(null)
   const [toggling, setToggling] = useState(false)
   const [toggleError, setToggleError] = useState<string | null>(null)
+  const [withdrawing, setWithdrawing] = useState(false)
+  const [withdrawStatus, setWithdrawStatus] = useState<string | null>(null)
+  const [depositing, setDepositing] = useState(false)
+  const [depositStatus, setDepositStatus] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -97,6 +102,41 @@ export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
       setToggling(false)
     }
   }
+
+  const handleDeposit = async () => {
+    setDepositing(true)
+    setDepositStatus(null)
+    try {
+      const amountUnits = (Number(avatar.starting_capital_usd) * 1_000_000).toString()
+      const txHash = await depositToVault(avatar.id, amountUnits)
+      const updated = await confirmDeposit(avatar.id, txHash)
+      setData({ ...data, avatar: updated })
+      setDepositStatus('Deposit confirmed! Avatar is now active.')
+    } catch (err) {
+      console.error('deposit failed', err)
+      setDepositStatus('Deposit failed or cancelled.')
+    } finally {
+      setDepositing(false)
+    }
+  }
+
+  const handleWithdraw = async () => {
+    if (!window.confirm(`Withdraw funds from vault for ${avatar.name}?`)) return
+    setWithdrawing(true)
+    setWithdrawStatus(null)
+    try {
+      const txHash = await withdrawFromVault(avatar.id)
+      setWithdrawStatus(`Withdrawn! Tx: ${txHash.slice(0, 8)}…`)
+      const updated = await getAvatar(avatar.id)
+      setData({ ...data, avatar: updated })
+    } catch (err) {
+      console.error('withdraw failed', err)
+      setWithdrawStatus('Withdraw failed or cancelled.')
+    } finally {
+      setWithdrawing(false)
+    }
+  }
+
   const change = start > 0 ? (Number(avatar.equity_usd) / start - 1) * 100 : 0
   const positions = Object.entries(avatar.positions).sort(([, a], [, b]) => Number(b) - Number(a))
 
@@ -116,13 +156,49 @@ export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
         risk {avatar.risk} · goal {GOAL_LABELS[avatar.goal]}
         {avatar.cloned_from && ' · clone'}
         {!avatar.active && ' · paused'}
+        {avatar.mode === 'real' && !avatar.deposit_tx_hash && ' · awaiting deposit'}
       </p>
+      {avatar.deposit_tx_hash && (
+        <p className="panel-muted">
+          vault deposit:{' '}
+          <a
+            href={`https://testnet.nearblocks.io/txns/${avatar.deposit_tx_hash}`}
+            target="_blank"
+            rel="noreferrer"
+            className="mono"
+            style={{ textDecoration: 'underline' }}
+          >
+            {avatar.deposit_tx_hash.slice(0, 8)}…{avatar.deposit_tx_hash.slice(-6)}
+          </a>
+        </p>
+      )}
       {isOwner && (
-        <div className="form-actions">
-          <button type="button" onClick={toggleActive} disabled={toggling}>
-            {toggling ? 'Saving…' : avatar.active ? 'Pause' : 'Start'}
-          </button>
+        <div className="form-actions" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+          {avatar.mode === 'real' && !avatar.deposit_tx_hash ? (
+            <button type="button" onClick={handleDeposit} disabled={depositing}>
+              {depositing ? 'Depositing…' : `Deposit ${avatar.starting_capital_usd} tUSDC to Activate`}
+            </button>
+          ) : (
+            <button type="button" onClick={toggleActive} disabled={toggling}>
+              {toggling ? 'Saving…' : avatar.active ? 'Pause' : 'Start'}
+            </button>
+          )}
+
+          {avatar.mode === 'real' && avatar.deposit_tx_hash && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={handleWithdraw}
+              disabled={withdrawing || toggling}
+              title="Withdraw all funds from vault back to owner wallet"
+            >
+              {withdrawing ? 'Withdrawing…' : 'Withdraw funds'}
+            </button>
+          )}
+
           {toggleError && <span className="header-error">{toggleError}</span>}
+          {depositStatus && <span className="header-note">{depositStatus}</span>}
+          {withdrawStatus && <span className="header-note">{withdrawStatus}</span>}
         </div>
       )}
 

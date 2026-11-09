@@ -73,11 +73,20 @@ export async function logout(): Promise<void> {
 }
 
 /** The marketplace contract the Buy button pays (must match the backend's `MARKETPLACE_CONTRACT_ID`). */
-const MARKETPLACE_CONTRACT_ID =
+export const MARKETPLACE_CONTRACT_ID =
   import.meta.env.VITE_MARKETPLACE_CONTRACT_ID ?? 'marketplace.fondouk.testnet'
+
+/** The vault contract that holds real avatar deposits. */
+export const VAULT_CONTRACT_ID =
+  import.meta.env.VITE_VAULT_CONTRACT_ID ?? 'vault.fondouk.testnet'
+
+/** The test token contract (tUSDC) with built-in faucet. */
+export const TEST_TOKEN_CONTRACT_ID =
+  import.meta.env.VITE_TEST_TOKEN_CONTRACT_ID ?? 'usdc.fondouk.testnet'
 
 /** 30 TGas: far more than `buy_clone` needs (it only emits an event and makes 2 transfers). */
 const BUY_CLONE_GAS = '30000000000000'
+const FT_TRANSFER_GAS = '50000000000000'
 
 /**
  * Pays for a clone: the wallet signs `buy_clone` with the price attached. The
@@ -103,6 +112,95 @@ export async function buyClone(avatarId: string, priceYocto: string): Promise<st
           args: { avatar_id: avatarId },
           gas: BUY_CLONE_GAS,
           deposit: priceYocto,
+        },
+      },
+    ],
+  })
+  return outcome.transaction_outcome.id
+}
+
+/**
+ * Claims 100 tUSDC from the test token faucet.
+ */
+export async function claimFaucet(): Promise<string> {
+  const connected = await getConnector()
+    .getConnectedWallet()
+    .catch(() => null)
+  if (!connected) throw new Error('No wallet connected: log in again')
+
+  const outcome = await connected.wallet.signAndSendTransaction({
+    network,
+    receiverId: TEST_TOKEN_CONTRACT_ID,
+    actions: [
+      {
+        type: 'FunctionCall',
+        params: {
+          methodName: 'mint_faucet',
+          args: {},
+          gas: BUY_CLONE_GAS,
+          deposit: '0',
+        },
+      },
+    ],
+  })
+  return outcome.transaction_outcome.id
+}
+
+/**
+ * Deposits tUSDC tokens into the Fondouk Vault for an avatar.
+ * Calls `ft_transfer_call` on the token contract with `msg: avatar_id`.
+ */
+export async function depositToVault(avatarId: string, amountUnits: string): Promise<string> {
+  const connected = await getConnector()
+    .getConnectedWallet()
+    .catch(() => null)
+  if (!connected) throw new Error('No wallet connected: log in again')
+
+  const outcome = await connected.wallet.signAndSendTransaction({
+    network,
+    receiverId: TEST_TOKEN_CONTRACT_ID,
+    actions: [
+      {
+        type: 'FunctionCall',
+        params: {
+          methodName: 'ft_transfer_call',
+          args: {
+            receiver_id: VAULT_CONTRACT_ID,
+            amount: amountUnits,
+            msg: avatarId,
+          },
+          gas: FT_TRANSFER_GAS,
+          deposit: '1',
+        },
+      },
+    ],
+  })
+  return outcome.transaction_outcome.id
+}
+
+/**
+ * Withdraws deposited tUSDC from the Vault back to the owner's wallet.
+ */
+export async function withdrawFromVault(avatarId: string, amountUnits?: string): Promise<string> {
+  const connected = await getConnector()
+    .getConnectedWallet()
+    .catch(() => null)
+  if (!connected) throw new Error('No wallet connected: log in again')
+
+  const outcome = await connected.wallet.signAndSendTransaction({
+    network,
+    receiverId: VAULT_CONTRACT_ID,
+    actions: [
+      {
+        type: 'FunctionCall',
+        params: {
+          methodName: 'withdraw',
+          args: {
+            avatar_id: avatarId,
+            amount: amountUnits ?? null,
+          },
+          gas: FT_TRANSFER_GAS,
+          deposit: '1',
         },
       },
     ],

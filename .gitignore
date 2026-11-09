@@ -9,3 +9,6 @@ target/
 # Frontend
 node_modules/
 dist/
+
+
+AGENTS.md
