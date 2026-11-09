@@ -82,7 +82,7 @@ export const VAULT_CONTRACT_ID =
 
 /** The test token contract (tUSDC) with built-in faucet. */
 export const TEST_TOKEN_CONTRACT_ID =
-  import.meta.env.VITE_TEST_TOKEN_CONTRACT_ID ?? 'usdc.fondouk.testnet'
+  import.meta.env.VITE_TEST_TOKEN_CONTRACT_ID ?? 'test_token.fondouk.testnet'
 
 /** 30 TGas: far more than `buy_clone` needs (it only emits an event and makes 2 transfers). */
 const BUY_CLONE_GAS = '30000000000000'
