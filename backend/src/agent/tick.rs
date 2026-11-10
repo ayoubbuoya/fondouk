@@ -89,6 +89,15 @@ pub async fn run(
     tracing::info!("agent loop stopped");
 }
 
+/// Options for running an agent tick, allowing demo overrides.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TickOptions {
+    /// When true, ignores the 1 msg/hour arena limit so avatars can talk during demo video.
+    pub relax_arena_rate_limit: bool,
+    /// When true, ignores cooldown ticks so avatars can move on cue during demo video.
+    pub bypass_cooldown: bool,
+}
+
 /// One tick: one decision per active `sim` avatar. Returns how many decisions
 /// were stored. One avatar failing (e.g. a database error) is logged and does
 /// not stop the others. Each stored decision is announced on `events` (D43).
@@ -102,12 +111,25 @@ pub async fn tick_once(
     events: &LiveSender,
     now: DateTime<Utc>,
 ) -> Result<usize> {
+    tick_once_demo(pool, llm, stale_after, events, now, TickOptions::default()).await
+}
+
+/// One tick with optional demo flags to relax arena rate limits and bypass
+/// move cooldowns during recording.
+pub async fn tick_once_demo(
+    pool: &PgPool,
+    llm: &LlmClient,
+    stale_after: Duration,
+    events: &LiveSender,
+    now: DateTime<Utc>,
+    options: TickOptions,
+) -> Result<usize> {
     let market = live_market(pool, now, stale_after).await?;
     let avatars = avatars::list_active_avatars(pool, SOURCE).await?;
 
     let mut logged = 0;
     for avatar in &avatars {
-        match tick_avatar(pool, llm, avatar, &market, events, now).await {
+        match tick_avatar(pool, llm, avatar, &market, events, now, options).await {
             Ok(()) => logged += 1,
             Err(err) => tracing::error!(avatar = %avatar.id, "agent decision failed: {err:#}"),
         }
@@ -125,6 +147,7 @@ async fn tick_avatar(
     market: &LiveMarket,
     events: &LiveSender,
     now: DateTime<Utc>,
+    options: TickOptions,
 ) -> Result<()> {
     let risk: Risk = avatar.risk.parse().map_err(anyhow::Error::msg)?;
 
@@ -147,7 +170,11 @@ async fn tick_avatar(
         cash_usd: ledger.cash_usd(),
         positions: ledger.positions().clone(),
     };
-    let ticks_since_last_move = decisions::ticks_since_last_move(pool, avatar.id, SOURCE).await?;
+    let ticks_since_last_move = if options.bypass_cooldown {
+        Some(100)
+    } else {
+        decisions::ticks_since_last_move(pool, avatar.id, SOURCE).await?
+    };
     let profile = Profile {
         persona: &avatar.persona,
         risk,
@@ -162,7 +189,9 @@ async fn tick_avatar(
     }
 
     // Rate limits for arena messages (SPEC F9.3: 1/hr per avatar, 20/hr total).
-    if let Action::Say { .. } = decision.applied {
+    if !options.relax_arena_rate_limit
+        && let Action::Say { .. } = decision.applied
+    {
         let one_hour_ago = now - chrono::Duration::hours(1);
         let avatar_msg_count = arena::avatar_message_count_since(pool, avatar.id, one_hour_ago).await?;
         let total_msg_count = arena::total_message_count_since(pool, one_hour_ago).await?;

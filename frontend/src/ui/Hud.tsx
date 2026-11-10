@@ -13,6 +13,10 @@ interface HudProps {
   stats: TownStats | null
   /** Opens the create-avatar wizard; the button shows only when logged in (D63). */
   onCreateAvatar: () => void
+  /** Toggles the simulation demo controls floating bar. */
+  onToggleDemo: () => void
+  /** Whether the demo bar is currently open. */
+  isDemoOpen: boolean
 }
 
 /**
@@ -26,7 +30,7 @@ interface HudProps {
  * Sim and real equity are separate chips with their own badge: the two are
  * never shown as one number (CLAUDE.md "data source labels").
  */
-export function Hud({ stats, onCreateAvatar }: HudProps) {
+export function Hud({ stats, onCreateAvatar, onToggleDemo, isDemoOpen }: HudProps) {
   const [account, setAccount] = useState<Account>(undefined)
   const [busy, setBusy] = useState(false)
   const [faucetBusy, setFaucetBusy] = useState(false)
@@ -104,6 +108,14 @@ export function Hud({ stats, onCreateAvatar }: HudProps) {
       )}
 
       <div className="hud-wallet">
+        <button
+          type="button"
+          className={`hud-demo-btn${isDemoOpen ? ' active' : ''}`}
+          onClick={onToggleDemo}
+          title="Toggle Simulation & Demo Controls"
+        >
+          ⚡ Demo
+        </button>
         {faucetMessage && <span className="header-success">{faucetMessage}</span>}
         {error && <span className="header-error">{error}</span>}
         {account === undefined ? null : account === null ? (

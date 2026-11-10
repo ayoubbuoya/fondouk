@@ -8,6 +8,7 @@ import { townStats } from './lib/townStats'
 import { ArenaPanel } from './ui/ArenaPanel'
 import { AvatarPanel } from './ui/AvatarPanel'
 import { CreateAvatarPanel } from './ui/CreateAvatarPanel'
+import { DemoBar } from './ui/DemoBar'
 import { Hud } from './ui/Hud'
 import { IntroCard } from './ui/IntroCard'
 import { JudgeTour } from './ui/JudgeTour'
@@ -54,6 +55,7 @@ export default function App() {
   const [villages, setVillages] = useState<Village[] | null>(null)
   const [avatars, setAvatars] = useState<AvatarSummary[] | null>(null)
   const [news, setNews] = useState<TickerLine[]>([])
+  const [demoOpen, setDemoOpen] = useState(false)
 
   const stats = useMemo(
     () => (villages && avatars ? townStats(villages, avatars) : null),
@@ -156,7 +158,13 @@ export default function App() {
         onLiveEvent={onLiveEvent}
       />
 
-      <Hud stats={stats} onCreateAvatar={() => open('create')} />
+      <Hud
+        stats={stats}
+        onCreateAvatar={() => open('create')}
+        onToggleDemo={() => setDemoOpen((prev) => !prev)}
+        isDemoOpen={demoOpen}
+      />
+      {demoOpen && <DemoBar onClose={() => setDemoOpen(false)} />}
       <NavDock
         active={activeDockItem}
         onStartTour={startTour}

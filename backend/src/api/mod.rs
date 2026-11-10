@@ -14,6 +14,7 @@
 pub mod arena;
 pub mod auth;
 mod avatars;
+pub mod demo;
 pub mod leaderboard;
 mod marketplace;
 pub mod near_rpc;
@@ -88,6 +89,10 @@ pub fn router(state: AppState) -> Router {
         .route("/marketplace/claim", post(marketplace::claim_purchase))
         .route("/leaderboard", get(leaderboard::get_leaderboard))
         .route("/arena/feed", get(arena::get_feed))
+        .route("/demo/shock", post(demo::market_shock))
+        .route("/demo/tick", post(demo::trigger_tick))
+        .route("/demo/step", post(demo::demo_step))
+        .route("/demo/reset", post(demo::reset_rates))
         .route("/ws", get(ws::ws_handler))
         .with_state(state)
 }
