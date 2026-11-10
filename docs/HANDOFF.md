@@ -8,7 +8,7 @@ This file is for anyone joining the project (teammates or a coding agent). Read 
 
 ## 1. Current state
 
-- **Phase:** Day 1 to Day 9 built; **Real Mode (Option 2: Test Token + Vault Contract) fully implemented & tested across contracts, backend, and frontend (9 Nov, D65).**
+- **Phase:** Day 1 to Day 11 built; **Leaderboard (SPEC F10) fully implemented & tested across backend and frontend (10 Nov).** Real Mode (Option 2: Test Token + Vault Contract) deployed to testnet.
 - **Contracts (`contracts/`):**
   - `contracts/test_token`: NEP-141 token (`tUSDC`, 6 decimals) with built-in public `mint_faucet()` giving 100 tUSDC to test with. **Deployed to `test_token.fondouk.testnet`** (initialized with `new()`).
   - `contracts/vault`: Smart contract holding avatar funds, accepting deposits via `ft_on_transfer` (emits NEP-297 `vault_deposited`), owner-only `withdraw(avatar_id, amount)`, cap checks, and operator-restricted action boundaries. **Deployed to `vault.fondouk.testnet`** (initialized with owner/operator `owner.fondouk.testnet`, token `test_token.fondouk.testnet`).
@@ -143,7 +143,7 @@ Times are rough. P0 first, always.
 | 8 | 8 Nov | Marketplace contract + tests, deploy testnet | Sandbox tests pass, testnet deployed |
 | 9 | 9 Nov | Marketplace UI + event watcher + clone creation. **Real mode go/no-go** | One testnet clone works end to end |
 | 10 | 10 Nov | Vault contract (full or fallback version) + executor | One real deposit, action, withdraw |
-| 11 | 11 Nov | Leaderboard, create-avatar flow (no backtest preview, D51) | Leaderboard numbers match manual check |
+| 11 | 11 Nov | Leaderboard, create-avatar flow (no backtest preview, D51) | Leaderboard numbers match manual check. **Done 10 Nov** |
 | 12 | 12 Nov | Social arena (P1), demo seed check (10 avatars, **started live earlier**, D51), judge tour | Fresh visitor can do the tour |
 | 13 | 13 Nov | Bug fixing, README for humans and AI judges, deploy | Public URL works from another machine |
 | 14 | 14 Nov | Record demo video, X post, make repo public, submit before 23:59 UTC | Submission returns 201 |
@@ -253,6 +253,7 @@ Environment variables. The first five, the `LLM_*` / `AGENT_TICK_SECS` ones and 
 | 6 Nov 2026 | Ayoub + Claude | D63, **not committed**: create-avatar wizard (`ui/CreateAvatarPanel.tsx`, `lib/createAvatar.ts`, Header button, owner Start/Pause in AvatarPanel, townBus `avatars:reload`); `POST /avatars` creates paused, max 3 per account (row lock on `users`), runs the 7-day backtest with the live LLM `decide` and the persona; `backtest::Replay` shares the day rules between `run` (tests) and `run_for_avatar` (LLM); backtest decisions stored with the equity in one transaction; `AppState.llm`. Frontend 46 tests, lint, build OK; clippy clean; `.sqlx` refreshed. **cargo test not run yet.** | Run `cargo test`; try the wizard by hand (costs about 7 LLM calls); then Day 10 vault. |
 | 6 Nov 2026 | Ayoub + Claude | D64, **not committed**: `agent::llm` sends `reasoning_effort: "none"` and names `finish_reason` when a reply has no text (fix for "LLM reply has no text content" with deepseek-v4.1-flash). 3 new tests with a fake LLM server. 285/286 pass; the 1 failure is the D63 test that was already failing (`decisions_and_equity_need_one_source_and_never_mix_them`). Clippy clean. | Run the backend and check that ticks log `rejected_rule="-"`; test NEAR AI Cloud with the field (U6). |
 | 9 Nov 2026 | Ayoub + Claude | D65 (Real Mode Option 2): built and deployed `contracts/test_token` to `test_token.fondouk.testnet` (NEP-141 + `mint_faucet`) and `contracts/vault` to `vault.fondouk.testnet` (deposit accounting + owner-only withdraw); verified test faucet claim on testnet; backend migration 0010 (`deposit_tx_hash`, `deposit_token`), `confirm_deposit` RPC verification endpoint; fixed legacy D63 test; frontend Faucet button, Sim/Real toggle with 10/25/50/100 tUSDC deposit options in wizard, deposit signing, explorer link, and owner withdraw button in AvatarPanel. 287 backend tests pass, 53 frontend tests pass, 8 contract unit tests pass. | End-to-end testing in browser. |
+| 10 Nov 2026 | Ayoub + buoya | Day 11 (SPEC F10 Leaderboard): `backend/src/db/leaderboard.rs` (query avatars with clone/move counts, windowed live equity snapshots); `backend/src/api/leaderboard.rs` (`compute_avatar_metrics` with pure 7d/30d return and peak-to-trough drawdown math, F10.3 acceptance tests for 3 sample characters, `GET /leaderboard?tab=main|new`); `.sqlx` offline query cache updated; frontend `api.ts`, `format.ts` (`formatPercent`, `formatDrawdown`, `formatAge`), `format.test.ts`, `LeaderboardPanel.tsx` (tabs, sortable table, avatar click to view details), `Header.tsx` (Leaderboard button), `App.tsx`, and responsive styles in `index.css`. All backend tests pass, 62 frontend tests pass, lint and build clean. | Day 12: Social arena / demo seed / judge tour. |
 
 ---
 

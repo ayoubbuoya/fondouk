@@ -5,13 +5,14 @@ import type { LiveEvent } from './lib/liveEvents'
 import { AvatarPanel } from './ui/AvatarPanel'
 import { CreateAvatarPanel } from './ui/CreateAvatarPanel'
 import { Header } from './ui/Header'
+import { LeaderboardPanel } from './ui/LeaderboardPanel'
 import { MarketplacePanel } from './ui/MarketplacePanel'
 import { SidePanel } from './ui/SidePanel'
 import { TownCanvas, type Selection } from './ui/TownCanvas'
 import { VillagePanel } from './ui/VillagePanel'
 
 /** The panel on the right: one at a time. */
-type Panel = 'none' | 'marketplace' | 'create'
+type Panel = 'none' | 'marketplace' | 'create' | 'leaderboard'
 
 /**
  * Layout: header on top, town on the left, details panel on the right when
@@ -57,9 +58,18 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header onOpenMarketplace={() => open('marketplace')} onCreateAvatar={() => open('create')} />
+      <Header
+        onOpenLeaderboard={() => open('leaderboard')}
+        onOpenMarketplace={() => open('marketplace')}
+        onCreateAvatar={() => open('create')}
+      />
       <main className="app-main">
         <TownCanvas onSelect={select} onLiveEvent={onLiveEvent} />
+        {panel === 'leaderboard' && (
+          <SidePanel onClose={() => setPanel('none')} className="side-panel-wide">
+            <LeaderboardPanel onSelectAvatar={(id) => select({ kind: 'avatar', id })} />
+          </SidePanel>
+        )}
         {panel === 'marketplace' && (
           <SidePanel onClose={() => setPanel('none')}>
             <MarketplacePanel onOpenAvatar={(id) => select({ kind: 'avatar', id })} />

@@ -13,6 +13,7 @@
 
 pub mod auth;
 mod avatars;
+pub mod leaderboard;
 mod marketplace;
 pub mod near_rpc;
 pub mod nep413;
@@ -84,6 +85,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/marketplace/listings", get(marketplace::list_listings))
         .route("/marketplace/claim", post(marketplace::claim_purchase))
+        .route("/leaderboard", get(leaderboard::get_leaderboard))
         .route("/ws", get(ws::ws_handler))
         .with_state(state)
 }

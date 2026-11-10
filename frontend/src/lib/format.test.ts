@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import { actionLabel, formatApy, formatNear, formatUsd, staleLabel, totalApy } from './format'
+import {
+  actionLabel,
+  formatAge,
+  formatApy,
+  formatDrawdown,
+  formatNear,
+  formatPercent,
+  formatUsd,
+  staleLabel,
+  totalApy,
+} from './format'
 
 describe('totalApy', () => {
   it('adds base and reward APY from decimal strings', () => {
@@ -106,5 +116,60 @@ describe('actionLabel', () => {
 
   it('does not crash on an unknown action', () => {
     expect(actionLabel({ action: 'FLY' } as never)).toBe('FLY')
+  })
+})
+
+describe('formatPercent', () => {
+  it('formats positive percentages with a plus sign', () => {
+    expect(formatPercent('0.052')).toBe('+5.2%')
+    expect(formatPercent(0.1)).toBe('+10.0%')
+  })
+
+  it('formats negative percentages with a minus sign', () => {
+    expect(formatPercent('-0.025')).toBe('-2.5%')
+    expect(formatPercent(-0.01)).toBe('-1.0%')
+  })
+
+  it('formats zero as 0.0%', () => {
+    expect(formatPercent('0')).toBe('0.0%')
+    expect(formatPercent(0)).toBe('0.0%')
+  })
+
+  it('shows a dash for null, undefined, or invalid inputs', () => {
+    expect(formatPercent(null)).toBe('–')
+    expect(formatPercent(undefined)).toBe('–')
+    expect(formatPercent('')).toBe('–')
+    expect(formatPercent('not-a-number')).toBe('–')
+  })
+})
+
+describe('formatDrawdown', () => {
+  it('formats positive drop values with a leading minus sign', () => {
+    expect(formatDrawdown('0.25')).toBe('-25.0%')
+    expect(formatDrawdown(0.015)).toBe('-1.5%')
+  })
+
+  it('formats zero or negative values as 0.0%', () => {
+    expect(formatDrawdown('0')).toBe('0.0%')
+    expect(formatDrawdown(0)).toBe('0.0%')
+    expect(formatDrawdown('-0.1')).toBe('0.0%')
+  })
+
+  it('handles null, undefined, and empty string as 0.0%', () => {
+    expect(formatDrawdown(null)).toBe('0.0%')
+    expect(formatDrawdown(undefined)).toBe('0.0%')
+    expect(formatDrawdown('')).toBe('0.0%')
+  })
+})
+
+describe('formatAge', () => {
+  it('formats 0 or negative days as <1d', () => {
+    expect(formatAge(0)).toBe('<1d')
+    expect(formatAge(-1)).toBe('<1d')
+  })
+
+  it('formats positive days with a d suffix', () => {
+    expect(formatAge(1)).toBe('1d')
+    expect(formatAge(14)).toBe('14d')
   })
 })

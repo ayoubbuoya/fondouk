@@ -1,0 +1,155 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            a.id,\n            a.owner,\n            a.name,\n            a.sprite,\n            a.mode,\n            a.starting_capital_usd,\n            a.cloned_from,\n            a.listed,\n            a.price_yocto,\n            a.created_at,\n            COALESCE(c.clone_count, 0) AS \"clone_count!\",\n            COALESCE(d.moves_count, 0) AS \"moves_count!\",\n            e.first_equity_ts\n        FROM avatars a\n        LEFT JOIN (\n            SELECT cloned_from, count(*) AS clone_count\n            FROM avatars\n            WHERE cloned_from IS NOT NULL\n            GROUP BY cloned_from\n        ) c ON c.cloned_from = a.id\n        LEFT JOIN (\n            SELECT avatar_id, count(*) AS moves_count\n            FROM decisions\n            WHERE applied_action->>'action' IN ('MOVE', 'REBALANCE')\n            GROUP BY avatar_id\n        ) d ON d.avatar_id = a.id\n        LEFT JOIN (\n            SELECT avatar_id, min(ts) AS first_equity_ts\n            FROM equity_snapshots\n            WHERE source IN ('sim', 'real')\n            GROUP BY avatar_id\n        ) e ON e.avatar_id = a.id\n        ORDER BY a.created_at ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "owner",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "owner"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "sprite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "sprite"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "mode",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "mode"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "starting_capital_usd",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "starting_capital_usd"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "cloned_from",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "cloned_from"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "listed",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "listed"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "price_yocto",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "price_yocto"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "clone_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "moves_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "first_equity_ts",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "0bf543d89cc4574e76af6621f28e14e8df32319579d527fa29d4ab195c46699b"
+}

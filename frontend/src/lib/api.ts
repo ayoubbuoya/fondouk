@@ -268,6 +268,33 @@ export function logoutSession(): Promise<void> {
   return request('POST', '/auth/logout')
 }
 
+/** Leaderboard row from `GET /leaderboard` (SPEC F10). */
+export interface LeaderboardEntry {
+  id: string
+  name: string
+  sprite: string
+  owner: string
+  mode: AvatarMode
+  return_7d: string | null
+  return_30d: string | null
+  max_drawdown: string
+  moves_count: number
+  age_days: number
+  created_at: string
+  clone_count: number
+  listed: boolean
+  price_yocto: string | null
+  is_new: boolean
+}
+
+/**
+ * Fetches the ranked leaderboard, optionally filtered by tab ('main' | 'new').
+ */
+export function getLeaderboard(tab?: 'main' | 'new'): Promise<LeaderboardEntry[]> {
+  const query = tab ? `?tab=${tab}` : ''
+  return request('GET', `/leaderboard${query}`)
+}
+
 /**
  * Confirms an on-chain deposit to the Vault for a Real Mode avatar.
  */

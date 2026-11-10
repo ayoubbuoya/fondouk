@@ -90,3 +90,34 @@ export function actionLabel(action: AgentAction): string {
       return String((action as { action?: unknown }).action ?? '?')
   }
 }
+
+/**
+ * Formats a decimal return string or number as a signed percentage.
+ * e.g. "0.052" -> "+5.2%", "-0.014" -> "-1.4%", "0" -> "0.0%".
+ */
+export function formatPercent(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === '') return '–'
+  const num = typeof value === 'string' ? parseFloat(value) : value
+  if (!Number.isFinite(num)) return '–'
+  const pct = num * 100
+  const sign = pct > 0 ? '+' : ''
+  return `${sign}${pct.toFixed(1)}%`
+}
+
+/**
+ * Formats peak-to-trough drawdown as a percentage (e.g. "0.025" -> "-2.5%", "0" -> "0.0%").
+ */
+export function formatDrawdown(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === '') return '0.0%'
+  const num = typeof value === 'string' ? parseFloat(value) : value
+  if (!Number.isFinite(num) || num <= 0) return '0.0%'
+  return `-${(num * 100).toFixed(1)}%`
+}
+
+/**
+ * Formats an avatar's age in days, e.g. 0 -> "<1d", 1 -> "1d", 14 -> "14d".
+ */
+export function formatAge(days: number): string {
+  if (days <= 0) return '<1d'
+  return `${days}d`
+}

@@ -7,17 +7,17 @@ import { claimFaucet, currentAccount, login, logout } from '../lib/wallet'
 type Account = string | null | undefined
 
 interface HeaderProps {
+  onOpenLeaderboard: () => void
   onOpenMarketplace: () => void
   /** Opens the create-avatar wizard; the button shows only when logged in. */
   onCreateAvatar: () => void
 }
 
 /**
- * Top bar: title, data source note (F2 acceptance), the Marketplace button,
- * the Create avatar button (logged in only, D63) and the wallet button. On load it asks `GET /auth/me`, so a page reload keeps the
- * login (F1).
+ * Top bar: title, data source note (F2 acceptance), Leaderboard, Marketplace,
+ * Create avatar button (logged in only, D63) and wallet button.
  */
-export function Header({ onOpenMarketplace, onCreateAvatar }: HeaderProps) {
+export function Header({ onOpenLeaderboard, onOpenMarketplace, onCreateAvatar }: HeaderProps) {
   const [account, setAccount] = useState<Account>(undefined)
   const [busy, setBusy] = useState(false)
   const [faucetBusy, setFaucetBusy] = useState(false)
@@ -72,6 +72,9 @@ export function Header({ onOpenMarketplace, onCreateAvatar }: HeaderProps) {
         <span className="header-note">Yield data from DefiLlama, updated hourly</span>
       </div>
       <div className="header-wallet">
+        <button type="button" onClick={onOpenLeaderboard}>
+          Leaderboard
+        </button>
         <button type="button" onClick={onOpenMarketplace}>
           Marketplace
         </button>

@@ -5,6 +5,7 @@ pub mod auth;
 pub mod avatars;
 pub mod decisions;
 pub mod equity;
+pub mod leaderboard;
 pub mod llm_cache;
 pub mod positions;
 pub mod purchases;
