@@ -7,6 +7,8 @@ import { claimFaucet, currentAccount, login, logout } from '../lib/wallet'
 type Account = string | null | undefined
 
 interface HeaderProps {
+  /** Starts the 5-step Judge Tour (SPEC F12.2). */
+  onStartTour: () => void
   onOpenArena: () => void
   onOpenLeaderboard: () => void
   onOpenMarketplace: () => void
@@ -18,7 +20,13 @@ interface HeaderProps {
  * Top bar: title, data source note (F2 acceptance), Arena, Leaderboard, Marketplace,
  * Create avatar button (logged in only, D63) and wallet button.
  */
-export function Header({ onOpenArena, onOpenLeaderboard, onOpenMarketplace, onCreateAvatar }: HeaderProps) {
+export function Header({
+  onStartTour,
+  onOpenArena,
+  onOpenLeaderboard,
+  onOpenMarketplace,
+  onCreateAvatar,
+}: HeaderProps) {
   const [account, setAccount] = useState<Account>(undefined)
   const [busy, setBusy] = useState(false)
   const [faucetBusy, setFaucetBusy] = useState(false)
@@ -73,6 +81,14 @@ export function Header({ onOpenArena, onOpenLeaderboard, onOpenMarketplace, onCr
         <span className="header-note">Yield data from DefiLlama, updated hourly</span>
       </div>
       <div className="header-wallet">
+        <button
+          type="button"
+          className="header-tour-btn"
+          onClick={onStartTour}
+          title="Guided 5-step overview of Fondouk for judges & visitors (SPEC F12.2)"
+        >
+          🎯 Judge Tour
+        </button>
         <button type="button" onClick={onOpenArena}>
           💬 Arena
         </button>

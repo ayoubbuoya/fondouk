@@ -750,4 +750,223 @@ button.secondary {
   word-break: break-word;
 }
 
+/* ---- Judge Tour (SPEC F12.2) ---- */
+
+.header-tour-btn {
+  background: rgba(224, 176, 79, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.header-tour-btn:hover {
+  background: var(--accent);
+  color: var(--bg);
+  box-shadow: 0 0 12px rgba(224, 176, 79, 0.4);
+}
+
+.judge-tour-backdrop {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 24px;
+}
+
+.judge-tour-card {
+  pointer-events: auto;
+  width: 440px;
+  max-width: calc(100vw - 48px);
+  background: #20232b;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.7);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: tourFadeIn 0.2s ease-out;
+}
+
+@keyframes tourFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.judge-tour-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.judge-tour-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.judge-tour-step-pill {
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.judge-tour-tag {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.judge-tour-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.judge-tour-close-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.judge-tour-title {
+  margin: 0;
+  font-size: 18px;
+  color: #fff;
+  font-weight: 600;
+}
+
+.judge-tour-summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #d1d5db;
+}
+
+.judge-tour-highlights {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.judge-tour-highlight-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.judge-tour-bullet {
+  color: var(--accent);
+  font-size: 10px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.judge-tour-highlight-text {
+  flex: 1;
+  word-break: break-word;
+}
+
+.judge-tour-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.judge-tour-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.judge-tour-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.judge-tour-dot.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(1.2);
+}
+
+.judge-tour-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.judge-tour-btn-primary {
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.judge-tour-btn-primary:hover {
+  background: #e8bd63;
+}
+
+.judge-tour-btn-secondary {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.judge-tour-btn-secondary:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+
 
