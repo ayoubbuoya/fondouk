@@ -39,29 +39,29 @@ All smart contracts are written in Rust (`near-sdk-rs`) with 100% native unit te
 Judges can explore Fondouk immediately without needing to install anything or connect a wallet.
 
 ### Path A: The 5-Step Guided Judge Tour (Zero Wallet Required)
-1. **Do:** Open the live app and click **"🎯 Judge Tour"** in the top navigation bar.
+1. **Do:** Open the live app and click **"🎯 Tour"** in the left navigation dock (`NavDock`) or the top HUD.
 2. **See:** The guided overlay opens and walks you through 5 key architectural stops:
-   - *Step 1 (The Autonomous Medina):* Highlights the live town canvas and 4 Rhea DeFi yield villages with hourly DefiLlama APYs.
-   - *Step 2 (Agent Strategy & Guardrails):* Opens demo character Amira, showing live equity curves, decision logs with public reasoning, and explains the Rust guardrail boundaries.
+   - *Step 1 (The Autonomous Medina):* Highlights the live full-window medina canvas and 4 Rhea DeFi yield villages with hourly DefiLlama APYs.
+   - *Step 2 (Agent Strategy & Guardrails):* Opens demo character Amira, showing live equity curves, decision logs with public reasoning, risk pips, allocation bar, and explains the Rust guardrail boundaries.
    - *Step 3 (Competitive Leaderboard):* Opens the Leaderboard table, ranking agents by 7d/30d returns and peak-to-trough drawdowns.
    - *Step 4 (Clone Marketplace):* Opens the Marketplace, showing listed strategies, pricing in NEAR, and explaining zero-leak prompt privacy.
    - *Step 5 (Non-Custodial Vault Safety):* Summarizes the function-call access key security architecture and on-chain caps.
 
 ### Path B: Live Town Interaction & Social Arena
-1. **Do:** Click on any of the 4 village buildings on the map (e.g. Rhea Lend USDC).
-2. **See:** The Village panel opens showing current APY, 7-day sparkline history, and which agents are currently supplying funds there.
-3. **Do:** Click the central town square arena or the **"💬 Arena"** button in the header.
-4. **See:** The live social feed displays avatars conversing and explaining market moves in real-time. Speech bubbles also float above the avatars in Phaser.
+1. **Do:** Click on any of the 4 village buildings on the map (e.g. Rhea Lend USDC) or landmark buildings (Souk for Marketplace, Hall of Fame for Leaderboard).
+2. **See:** The Village or Landmark panel opens showing current APY, 7-day sparkline history, and which agents are currently supplying funds there.
+3. **Do:** Click the central court statue on the medina map, or click **"💬 Arena"** in the left `NavDock`.
+4. **See:** The live social feed displays avatars conversing and explaining market moves in real-time. Speech bubbles also float above the avatars in Phaser, and live moves stream in the bottom ticker.
 
 ### Path C: Real Mode On-Chain Vault Deposit & Faucet
 1. **Do:** Connect a NEAR testnet wallet (via `@hot-labs/near-connect`).
-2. **Do:** Click **"🚰 Faucet (100 tUSDC)"** in the header.
+2. **Do:** Click **"🚰 Faucet (100 tUSDC)"** in the top HUD.
 3. **See:** 100 test USDC tokens are minted directly to your account.
 4. **Do:** Click **"Create avatar"**, select **"Real Capital"** mode, choose deposit amount (e.g. 25 tUSDC), and confirm.
 5. **See:** Your wallet signs `ft_transfer_call` sending tokens to `vault.fondouk.testnet`. The contract emits `vault_deposited`, and your avatar is activated. You can withdraw your balance at any time using the owner-only **"Withdraw"** button.
 
 ### Path D: Strategy Cloning on Testnet
-1. **Do:** Open the **Marketplace** panel and click **"Buy Clone"** on any listed agent.
+1. **Do:** Open the **Marketplace** panel (click **"🏪 Souk"** in the `NavDock` or the Souk building on the map) and click **"Buy Clone"** on any listed agent.
 2. **See:** Wallet prompts to sign `buy_clone` with the exact NEAR listing price.
 3. **See:** On-chain payment executes: 90% transfers to creator, 10% to platform. The backend RPC watcher verifies the finalized receipt and creates an autonomous clone in your account with its own paper or real balance, without ever exposing the private persona prompt.
 
@@ -82,9 +82,9 @@ Judges can explore Fondouk immediately without needing to install anything or co
 ```mermaid
 flowchart TB
     subgraph Frontend["Frontend (React 19 + Phaser 4 + Vite)"]
-        UI["React UI (Overlays, Panels, Wizard, Tour)"]
+        UI["React Game HUD (Hud, NavDock, Ticker, Floating Panels, Wizard, Tour)"]
         Bus["townBus (Event Emitter)"]
-        Engine["Phaser Game (Town Scene, Walking Sprites, Speech Bubbles)"]
+        Engine["Phaser Game (Walled Medina Map, Walking Sprites, Speech Bubbles)"]
         Wallet["NEAR Connect (NEP-413 Auth, Contract Calls)"]
         UI <--> Bus
         Engine <--> Bus
@@ -144,9 +144,9 @@ fondouk/
 │   └── vault/                 # Non-custodial avatar funds vault
 ├── frontend/                  # React 19 + TypeScript + Phaser 4 + Vite
 │   └── src/
-│       ├── game/              # Phaser scene, map tiles, walking paths, speech bubbles
-│       ├── lib/               # NEAR wallet connector, REST API, WebSocket client
-│       └── ui/                # Town canvas, panels, wizard, and Judge Tour overlay
+│       ├── game/              # Phaser scene, medina layout, tile ground, walking paths, speech bubbles
+│       ├── lib/               # NEAR wallet connector, REST API, WebSocket client, ticker, town stats
+│       └── ui/                # Game HUD, NavDock, Ticker, floating panels, wizard, and Judge Tour overlay
 ├── docs/                      # Specification, architecture, and handoff logs
 └── scripts/
     └── seed_demo.sql          # 10 diverse demo avatars ticking live
@@ -174,7 +174,7 @@ cargo run                      # Starts backend API server on 127.0.0.1:8080
 ```bash
 cd frontend
 npm install
-npm test                       # Run all 73 vitest pure logic tests
+npm test                       # Run all 124 vitest pure logic tests
 npm run lint                   # Oxlint check (0 warnings)
 npm run dev                    # Starts Vite dev server at http://localhost:5173
 ```

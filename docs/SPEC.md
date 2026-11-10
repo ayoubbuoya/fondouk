@@ -1,6 +1,6 @@
 # Fondouk: Product Specification
 
-Version 0.1, 23 Oct 2026. Target: NEAR HACKATHON (1 to 14 Nov 2026). See `overview.md` for context.
+Version 1.0 (Hackathon Release - Complete), 10 Nov 2026. Target: NEAR HACKATHON (1 to 14 Nov 2026). See `overview.md` for context.
 
 ---
 
@@ -56,7 +56,7 @@ Priority: **P0** = must ship for demo. **P1** = should ship. **P2** = only if ti
 ### F1. Wallet login (P0)
 - F1.1 User connects a NEAR wallet through NEAR Connect.
 - F1.2 Backend links the session to the NEAR account id (signed message, NEP-413 style).
-- Acceptance: user connects, sees their account id in the header, reload keeps the session.
+- Acceptance: user connects, sees their account id in the HUD, reload keeps the session.
 
 ### F2. Villages and live data (P0)
 - F2.1 At least 4 villages at launch, all from Rhea (lending markets for at least 2 assets, and at least 2 DEX pools). Exact pools are chosen on day 1 based on TVL and data availability.
@@ -102,28 +102,28 @@ Priority: **P0** = must ship for demo. **P1** = should ship. **P2** = only if ti
 - Acceptance: deposit, see the agent supply to Rhea (tx link shown), withdraw back to owner wallet.
 
 ### F8. Town view (P0)
-- F8.1 Tile map with villages, paths, and an arena square.
+- F8.1 Walled medina map (`medinaLayout.ts`) with 4 village districts, central court, landmark buildings (Souk, Hall of Fame, Court Statue), sand streets, and city walls.
 - F8.2 Characters are sprites that walk to the village where most of their funds are.
-- F8.3 Click a character: panel with owner, mode badge, equity chart, last 10 decisions with reasons, current positions.
-- F8.4 Click a village: panel with APR history, TVL, characters inside.
-- F8.5 Live updates via WebSocket, no page reload.
+- F8.3 Click a character: floating panel with owner, mode badge, equity chart, last 10 decisions with reasons, risk pips, allocation bar, and current positions.
+- F8.4 Click a village or landmark: floating panel with APR history, TVL, and characters inside (or opens Marketplace/Leaderboard/Arena for landmarks).
+- F8.5 Live updates via WebSocket, bottom news ticker, and floating game HUD.
 - Acceptance: when a decision moves a character, its sprite walks to the new village within 5 seconds.
 
 ### F9. Social arena (P1)
-- F9.1 After each tick, a few characters can post a short message to the arena (action `SAY`), shown as speech bubbles and in a feed.
+- F9.1 After each tick, a few characters can post a short message to the arena (action `SAY`), shown as speech bubbles in Phaser, entries in the bottom news ticker, and in the arena feed.
 - F9.2 Messages are generated from public info only (APRs, own public reason). They must never contain the persona text.
-- F9.3 Rate limit: at most 1 message per character per hour, at most 20 messages per hour in total.
+- F9.3 Rate limit: at most 1 message per character per hour, at most 20 messages per hour in total. Opened via the left `NavDock` or clicking the court statue.
 - P2: characters can "listen" to the feed as an extra input to their decision.
 - Acceptance: the arena feed shows messages, none contain persona text (automated check: no 8-word overlap with the persona).
 
 ### F10. Leaderboard (P0)
 - F10.1 Columns: name, owner, mode badge (sim, real), 7d return, 30d return, max drawdown, number of moves, age, clone count, price.
-- F10.2 Default sort: 30d return, but characters younger than 7 days of live history are shown in a separate "new" tab.
+- F10.2 Default sort: 30d return, but characters younger than 7 days of live history are shown in a separate "new" tab. Opened via the left `NavDock` ("🏆 Ranks") or clicking the Hall of Fame building.
 - F10.3 Return formula: `equity_end / equity_start - 1` for the window. Drawdown: max peak-to-trough drop of equity in the window.
 - Acceptance: numbers on the leaderboard match a manual calculation from the equity table for 3 sample characters.
 
 ### F11. Marketplace and cloning (P0)
-- F11.1 A creator can list a character with a price in NEAR. Listing is an on-chain call by the creator's wallet.
+- F11.1 A creator can list a character with a price in NEAR. Listing is an on-chain call by the creator's wallet. Opened via the left `NavDock` ("🏪 Souk") or clicking the Souk building.
 - F11.2 A buyer pays exactly the price to the marketplace contract. The contract sends 90% to the creator and 10% to the platform account in the same transaction, and emits an event.
 - F11.3 Backend watches events, creates a clone for the buyer that references the source config. The buyer never receives the persona text.
 - F11.4 A clone starts with a new balance (sim or real) and its own track record. Its listing page links to the source.
@@ -132,7 +132,7 @@ Priority: **P0** = must ship for demo. **P1** = should ship. **P2** = only if ti
 
 ### F12. Demo mode (P0)
 - F12.1 A seeded town with 8 to 12 characters of different styles, running live (`sim`) **as early as possible** (as soon as `LLM_*` is set), so they have days of real history by the demo (D51).
-- F12.2 A "Judge tour" button: a 5-step guided overlay (town, character panel, leaderboard, clone flow, vault safety).
+- F12.2 A "Judge tour" button in the left `NavDock`: a 5-step guided overlay (town, character panel, leaderboard, clone flow, vault safety).
 - Acceptance: a fresh visitor can complete the tour without connecting a wallet.
 
 ---

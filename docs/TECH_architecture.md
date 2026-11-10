@@ -74,12 +74,12 @@ Versions below were checked on 23 Oct 2026. "Latest found" means the newest vers
 
 | Part | Choice | Version | Status | Why |
 | --- | --- | --- | --- | --- |
-| Game engine | Phaser 4 | 4.2.1 (9 Jul 2026) | Latest found | Built-in tilemaps, sprite animation, camera, Tiled support. PixiJS is only a renderer and would need more custom code. |
-| Map editor | Tiled | n/a | Not checked | Standard map editor that Phaser loads directly. |
-| App shell | React + TypeScript + Vite | not checked | **Verify on setup** | Panels, forms, tables are normal UI, easier in React than in Phaser. |
-| Wallet | `@hot-labs/near-connect` + `near-connect-hooks` | not checked | **Verify on setup** | Current NEAR docs recommend NEAR Connect over the older Wallet Selector. |
-| Charts | Any small chart lib (decide on setup) | n/a | Open | Equity and APR sparklines. |
-| Art | Free pixel tilesets and sprites | n/a | Check each license | Must allow public use. |
+| Game engine | Phaser 4 | 4.2.1 | Verified | Full-window canvas (`Scale.RESIZE`), animated sprites, speech bubbles, camera zoom. |
+| Map layout | Procedural medina in code (`medinaLayout.ts`, `townMap.ts`) | n/a | Built (D68) | Walled sand medina with districts, gates, landmark buildings, depth-sorted houses. Replaced Tiled. |
+| App shell | React 19 + TypeScript + Vite | 8.3.5 / 19.3.1 | Built | Immersive game HUD floating over canvas: `Hud`, `NavDock`, `Ticker`, floating panels. |
+| Wallet | `@hot-labs/near-connect` (direct) | 0.12.0 | Built (D46) | Fast popup login + NEP-413 signing, direct calls without heavy wrapper hooks. |
+| Typography | `@fontsource/pixelify-sans` | 5.3.0 | Built (D71) | Self-hosted pixel font for titles, HUD chips, and numbers; body uses system sans. |
+| Art | Ninja Adventure asset pack (CC0) | n/a | Built (D52) | Tiles, houses, 8 character walk cycles. Licensed CC0 with credits in `CREDITS.md`. |
 
 ### Backend (Rust)
 
@@ -295,14 +295,16 @@ Methods:
 
 ## 8. Frontend
 
-Built on Day 6 (`frontend/`): Vite + React + TypeScript, Phaser 4, `@hot-labs/near-connect` (HANDOFF D44–D50).
+Built across Days 6–12 (`frontend/`): Vite + React 19 + TypeScript, Phaser 4, `@hot-labs/near-connect` (HANDOFF D44–D71). 124 unit tests pass via Vitest.
 
 - All REST calls go to `/api/...`; the Vite dev proxy (Vercel rewrite in production) strips `/api` and forwards to the backend, so the session cookie is same-origin (D37, D47). Live events: `/api/ws` in dev, `VITE_WS_URL` in production; the client reconnects after 5 s (D49).
-- `src/lib/`: `api.ts` (typed REST), `wallet.ts` (NEP-413 login), `liveEvents.ts` (`/ws` + `parseLiveEvent`), `format.ts` (APY, stale, USD and action labels). `src/game/`: `TownScene.ts`, `townBus.ts`, `townMap.ts` (ground tiles), `sprites.ts` (sprite list + walk frames), `walkPath.ts` (placement + walk path). `src/ui/`: `Header.tsx`, `TownCanvas.tsx`, `SidePanel.tsx`, `AvatarPanel.tsx`, `VillagePanel.tsx`, `LineChart.tsx`.
-- Art: Ninja Adventure pack, CC0 (D52), in `public/assets/` with `CREDITS.md`. The ground is a tile array built in code, not a Tiled map (D53): 25×25 tiles of 16 px drawn ×2, roads from each village (DB `map_x/map_y`) to the 5×5 arena.
-- Sprites: 8 ids (D54), the same list as the backend's `api::avatars::SPRITES`. Each character stands at `main_village` (queue on the road in front of the house; all cash = grid in the arena). On `avatar_move` the sprite walks to the arena centre, then to its new spot (D56, no pathfinding: every road meets at the arena).
-- React overlays: header with wallet, side panel (avatar F8.3 or village F8.4; reloaded on relevant live events), later leaderboard page, marketplace page, create-avatar modal, judge tour.
-- Phaser and React talk through a small event bus: `townBus`, a `Phaser.Events.EventEmitter` (D48). React owns the data and emits `villages:updated`, `village:history`, `avatars:updated`, `avatar:moved`; the scene emits `town:ready`, `avatar:selected`, `village:selected`. Only `TownCanvas` and the scene use the bus; `App` gets plain callbacks.
+- `src/lib/`: `api.ts` (typed REST), `wallet.ts` (NEP-413 login), `liveEvents.ts` (`/ws` + `parseLiveEvent`), `format.ts` (risk pips, allocation bar, APY, stale, USD), `ticker.ts` (event aggregation for bottom ticker), `townStats.ts` (summary statistics for HUD chips).
+- `src/game/`: `TownScene.ts`, `townBus.ts`, `medinaLayout.ts` (walled medina district coordinates and landmarks), `townMap.ts` (ground tile procedural generation), `sprites.ts` (sprite whitelist + walk frames), `walkPath.ts` (hub-and-spoke walk routing with dynamic speed to cap walk duration < 4.5s), `cameraZoom.ts` (responsive bounds).
+- `src/ui/`: `Hud.tsx` (top HUD with logo, separated sim/real town stats, faucet, wallet, create avatar button; replaced `Header.tsx`), `NavDock.tsx` (left dock: Tour, Arena, Ranks, Souk), `Ticker.tsx` (bottom scrolling news ticker), `IntroCard.tsx` (first-visit guide), `TownCanvas.tsx`, `SidePanel.tsx`, `AvatarPanel.tsx`, `VillagePanel.tsx`, `ArenaPanel.tsx`, `LeaderboardPanel.tsx`, `MarketplacePanel.tsx`, `CreateAvatarPanel.tsx`, `JudgeTour.tsx`.
+- Art: Ninja Adventure pack, CC0 (D52), in `public/assets/` with `CREDITS.md`. The ground is a tile array built in code (`medinaLayout.ts` and `townMap.ts`, D68): 76×46 world with sand streets, perimeter walls, districts for each village with APY signs, and clickable landmark buildings (Souk = Marketplace, Hall of Fame = Leaderboard, court statue = Arena). Full-window canvas with `Scale.RESIZE`.
+- Sprites: 8 ids (D54), the same list as the backend's `api::avatars::SPRITES`. Each character stands at its `main_village` district. On `avatar_move`, the sprite walks along district streets and the main medina road to its new spot.
+- React Game HUD: Floating HUD and NavDock over the medina. Panels float on the right (`SidePanel.tsx`) without squeezing or resizing the canvas.
+- Phaser and React talk through a small event bus: `townBus`, a `Phaser.Events.EventEmitter` (D48). React owns the data and pushes live updates to Phaser; the scene emits user interaction events (`town:ready`, `avatar:selected`, `village:selected`, `landmark:selected`). Only `TownCanvas` and the scene use the bus; `App` manages state and panel views.
 
 ---
 
