@@ -23,6 +23,7 @@ import { GameObjects, Input, Scene, Structs, Textures, Tweens } from 'phaser'
 
 import type { ArenaMessage, AvatarSummary, Village, YieldPoint } from '../lib/api'
 import { formatApy, staleLabel, totalApy } from '../lib/format'
+import { nameTag } from '../lib/progression'
 import { nextZoom, zoomLimits } from './cameraZoom'
 import {
   assignDistricts,
@@ -56,7 +57,7 @@ import {
   type Direction,
   type SpriteId,
 } from './sprites'
-import { townBus, type AvatarMoved, type VillageHistory } from './townBus'
+import { townBus, type AvatarMilestone, type AvatarMoved, type VillageHistory } from './townBus'
 import { buildGroundTiles } from './townMap'
 import { layoutStandings, pathLength, placeOf, walkPath, walkSpeed, type Point } from './walkPath'
 
@@ -69,6 +70,12 @@ const WALK_FPS = 8
 const STALE_TINT = 0x8a8a8a
 
 const TEXT_FONT = 'system-ui, sans-serif'
+
+/** The "LEVEL UP!" text: how far it floats up (screen pixels) and for how long. */
+const CELEBRATION_RISE = 26
+const CELEBRATION_MS = 2200
+/** Same gold as `--accent` in `index.css`. */
+const CELEBRATION_COLOR = '#e8b45a'
 
 /**
  * The HUD bar and the news strip float over the top and bottom of the canvas
@@ -86,8 +93,10 @@ const DEPTH_SIGNS = 5
 interface AvatarSprite {
   container: GameObjects.Container
   body: GameObjects.Sprite
-  /** The name tag; kept at the same size on screen at any zoom. */
+  /** The name tag ("Amira 4" = name and level); kept at the same size on screen at any zoom. */
   name: GameObjects.Text
+  /** The character's name alone, to rebuild the tag when its level changes. */
+  displayName: string
   sprite: SpriteId
   /** Where it stands or is going; `null` = court (all cash). */
   villageId: string | null
@@ -166,6 +175,7 @@ export class TownScene extends Scene {
       this.relayoutAvatars()
     }
     const onArenaMessage = (msg: ArenaMessage) => this.showSpeechBubble(msg)
+    const onMilestone = (milestone: AvatarMilestone) => this.celebrate(milestone)
     const onResize = (gameSize: Structs.Size) => this.fitCamera(gameSize.width, gameSize.height)
 
     townBus.on('villages:updated', onVillages)
@@ -173,6 +183,7 @@ export class TownScene extends Scene {
     townBus.on('avatars:updated', onAvatars)
     townBus.on('avatar:moved', onMoved)
     townBus.on('arena:message', onArenaMessage)
+    townBus.on('avatar:milestone', onMilestone)
     this.scale.on('resize', onResize)
     // Stop listening when the game is destroyed (React unmount), otherwise a
     // second game (StrictMode, hot reload) would get events for a dead scene.
@@ -182,6 +193,7 @@ export class TownScene extends Scene {
       townBus.off('avatars:updated', onAvatars)
       townBus.off('avatar:moved', onMoved)
       townBus.off('arena:message', onArenaMessage)
+      townBus.off('avatar:milestone', onMilestone)
       this.scale.off('resize', onResize)
     }
     this.events.once('shutdown', unsubscribe)
@@ -341,6 +353,41 @@ export class TownScene extends Scene {
           }
         })
       },
+    })
+  }
+
+  /**
+   * A character reached a level or a badge (D74): its name tag shows the new
+   * level, and a short gold text floats up from its head and fades out.
+   */
+  private celebrate({ avatarId, level, text }: AvatarMilestone): void {
+    const avatar = this.avatars.get(avatarId)
+    if (!avatar) return // not on the map yet; the next `/avatars` load has its level
+    avatar.name.setText(nameTag(avatar.displayName, level))
+
+    // Drawn at 1/zoom like the name tag, so it has the same size at any zoom.
+    const scale = 1 / this.cameras.main.zoom
+    const startY = -38
+    const floating = this.add
+      .text(0, startY, text, {
+        fontFamily: TEXT_FONT,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: CELEBRATION_COLOR,
+        stroke: '#1d1d1d',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5, 1)
+      .setScale(scale)
+    // Inside the container, so it follows a sprite that is walking.
+    avatar.container.add(floating)
+    this.tweens.add({
+      targets: floating,
+      y: startY - CELEBRATION_RISE * scale,
+      alpha: { from: 1, to: 0 },
+      duration: CELEBRATION_MS,
+      ease: 'Cubic.easeIn',
+      onComplete: () => floating.destroy(),
     })
   }
 
@@ -536,6 +583,9 @@ export class TownScene extends Scene {
       const existing = this.avatars.get(avatar.id)
       if (existing) {
         existing.villageId = avatar.main_village
+        // A reload may bring a new level (or a new name).
+        existing.displayName = avatar.name
+        existing.name.setText(nameTag(avatar.name, avatar.level))
         continue
       }
       this.avatars.set(avatar.id, this.createAvatarSprite(avatar))
@@ -554,7 +604,7 @@ export class TownScene extends Scene {
     const sprite = knownSprite(avatar.sprite)
     const body = this.add.sprite(0, 0, walkTextureKey(sprite), standFrame('down')).setScale(TILE_SCALE)
     const name = this.add
-      .text(0, -22, avatar.name, {
+      .text(0, -22, nameTag(avatar.name, avatar.level), {
         fontFamily: TEXT_FONT,
         fontSize: '11px',
         color: '#ffffff',
@@ -571,7 +621,15 @@ export class TownScene extends Scene {
       .setSize(TILE_SIZE * TILE_SCALE, TILE_SIZE * TILE_SCALE)
       .setInteractive({ useHandCursor: true })
       .on('pointerdown', () => townBus.emit('avatar:selected', avatar.id))
-    return { container, body, name, sprite, villageId: avatar.main_village, target: { ...start } }
+    return {
+      container,
+      body,
+      name,
+      displayName: avatar.name,
+      sprite,
+      villageId: avatar.main_village,
+      target: { ...start },
+    }
   }
 
   /**

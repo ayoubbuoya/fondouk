@@ -11,7 +11,7 @@ import type { ArenaMessage } from './api'
 import type { LiveEvent } from './liveEvents'
 
 /** How the line is coloured. */
-export type TickerTone = 'move' | 'hold' | 'blocked' | 'say'
+export type TickerTone = 'move' | 'hold' | 'blocked' | 'say' | 'unlock'
 
 export interface TickerLine {
   /** Stable per event, so a line is never shown twice. */
@@ -57,6 +57,24 @@ export function arenaLine(
 }
 
 /**
+ * The line for a new level or badge (D74). The backend sends each milestone
+ * once, and the id repeats the stored milestone, so it cannot show twice.
+ */
+export function milestoneLine(event: Extract<LiveEvent, { type: 'milestone' }>): TickerLine {
+  const text =
+    event.kind === 'level'
+      ? `⭐ ${event.avatar_name} reached ${event.label}`
+      : `🏅 ${event.avatar_name} unlocked ${event.label}`
+  return {
+    id: `milestone-${event.avatar_id}-${event.milestone}`,
+    ts: event.ts,
+    avatarId: event.avatar_id,
+    text,
+    tone: 'unlock',
+  }
+}
+
+/**
  * The line for one live event, or `null` when the event has no line:
  * - `apr_update`: the signs on the map already show it;
  * - `avatar_move`: the `decision` that caused it already has a line;
@@ -64,6 +82,7 @@ export function arenaLine(
  */
 export function tickerLine(event: LiveEvent, names: TickerNames): TickerLine | null {
   if (event.type === 'arena_message') return arenaLine(event)
+  if (event.type === 'milestone') return milestoneLine(event)
   if (event.type !== 'decision') return null
 
   const name = names.avatars.get(event.avatar_id) ?? UNKNOWN_AVATAR

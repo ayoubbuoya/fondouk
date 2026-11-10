@@ -50,6 +50,28 @@ describe('parseLiveEvent', () => {
     })
   })
 
+  it('parses a milestone event', () => {
+    const milestone = {
+      type: 'milestone',
+      avatar_id: 'a1',
+      avatar_name: 'Amira',
+      milestone: 'level:4',
+      kind: 'level',
+      label: 'Level 4',
+      level: 4,
+      ts: '2026-11-10T08:00:00Z',
+    }
+
+    expect(parseLiveEvent(JSON.stringify(milestone))).toEqual(milestone)
+  })
+
+  it('ignores a milestone of an unknown kind or without a level', () => {
+    const base = { type: 'milestone', avatar_id: 'a1', avatar_name: 'Amira', milestone: 'x', label: 'X', ts: 't' }
+
+    expect(parseLiveEvent(JSON.stringify({ ...base, kind: 'quest', level: 1 }))).toBeNull()
+    expect(parseLiveEvent(JSON.stringify({ ...base, kind: 'badge' }))).toBeNull()
+  })
+
   it('ignores unknown event types', () => {
     expect(parseLiveEvent('{"type":"unknown_type","foo":"bar"}')).toBeNull()
   })

@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT avatar_id, count(*) AS \"badges!\"\n        FROM avatar_milestones\n        WHERE milestone LIKE 'badge:%'\n        GROUP BY avatar_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "avatar_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "avatar_milestones",
+            "name": "avatar_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "badges!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "0cf6cfbf9538d55058bd9a9707de69b0244029c21b8d210bd04ffb48963bffa2"
+}

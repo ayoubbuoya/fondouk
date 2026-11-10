@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            a.id AS \"avatar_id!\",\n            COALESCE(d.valid_ticks, 0) AS \"valid_ticks!\",\n            COALESCE(d.moves, 0) AS \"moves!\",\n            COALESCE(d.messages, 0) AS \"messages!\",\n            COALESCE(d.guardrail_blocks, 0) AS \"guardrail_blocks!\",\n            COALESCE(c.clones, 0) AS \"clones!\",\n            e.first_live_ts AS \"first_live_ts?\"\n        FROM avatars a\n        LEFT JOIN (\n            SELECT\n                avatar_id,\n                count(*) FILTER (WHERE valid) AS valid_ticks,\n                count(*) FILTER (\n                    WHERE valid AND applied_action->>'action' IN ('MOVE', 'REBALANCE')\n                ) AS moves,\n                count(*) FILTER (\n                    WHERE valid AND applied_action->>'action' = 'SAY'\n                ) AS messages,\n                count(*) FILTER (\n                    WHERE NOT valid AND rejected_rule <> ALL($2::TEXT[])\n                ) AS guardrail_blocks\n            FROM decisions\n            WHERE source IN ('sim', 'real')\n            GROUP BY avatar_id\n        ) d ON d.avatar_id = a.id\n        LEFT JOIN (\n            SELECT cloned_from, count(*) AS clones\n            FROM avatars\n            WHERE cloned_from IS NOT NULL\n            GROUP BY cloned_from\n        ) c ON c.cloned_from = a.id\n        LEFT JOIN (\n            SELECT avatar_id, min(ts) AS first_live_ts\n            FROM equity_snapshots\n            WHERE source IN ('sim', 'real')\n            GROUP BY avatar_id\n        ) e ON e.avatar_id = a.id\n        WHERE $1::UUID IS NULL OR a.id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "avatar_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "valid_ticks!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "moves!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "messages!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "guardrail_blocks!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "clones!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "first_live_ts?",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      null,
+      null,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "a114383403f7b027d4ed8cf3028028c3ecae1449ca84ec7efadda6e4ba58a24b"
+}

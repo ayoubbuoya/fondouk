@@ -33,6 +33,8 @@ const avatar = (over: Partial<AvatarSummary>): AvatarSummary => ({
   main_village: null,
   deposit_tx_hash: null,
   deposit_token: null,
+  xp: 0,
+  level: 1,
   ...over,
 })
 

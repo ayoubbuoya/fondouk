@@ -12,6 +12,7 @@ import {
   type EquityPoint,
 } from '../lib/api'
 import { actionLabel, allocationShares, formatNear, formatUsd, parseNearToYocto } from '../lib/format'
+import { badgeIcon, xpPercent } from '../lib/progression'
 import { currentAccount, depositToVault, withdrawFromVault } from '../lib/wallet'
 import { CloneModal } from './CloneModal'
 import { LineChart } from './LineChart'
@@ -43,7 +44,8 @@ const GOAL_LABELS: Record<AvatarDetail['goal'], string> = {
 
 /**
  * F8.3: owner, mode badge, equity chart, last 10 decisions with their public
- * reasons, current positions.
+ * reasons, current positions. D74: level, XP bar and the badge catalog, all
+ * as sent by the backend (the browser computes no XP).
  *
  * History is read for the character's own mode only (`sim` or `real`) and
  * labelled with it: sources are never mixed (CLAUDE.md "data source labels").
@@ -197,6 +199,7 @@ export function AvatarPanel({ avatarId, refreshKey, onOpenAvatar }: AvatarPanelP
   const change = start > 0 ? (Number(avatar.equity_usd) / start - 1) * 100 : 0
   const positions = Object.entries(avatar.positions).sort(([, a], [, b]) => Number(b) - Number(a))
   const allocation = allocationShares(avatar.positions, avatar.cash_usd)
+  const unlockedBadges = avatar.badges.filter((badge) => badge.unlocked_at !== null).length
 
   return (
     <>
@@ -220,6 +223,23 @@ export function AvatarPanel({ avatarId, refreshKey, onOpenAvatar }: AvatarPanelP
         </span>
         <span className="trait-chip">{GOAL_LABELS[avatar.goal]}</span>
       </p>
+      {/* Level and XP (D74): experience from activity, not a performance number. */}
+      <div className="xp-row">
+        <span className="level-chip">Lv {avatar.level}</span>
+        <div
+          className="xp-bar"
+          role="progressbar"
+          aria-label="Experience in this level"
+          aria-valuemin={0}
+          aria-valuemax={avatar.xp_for_next_level}
+          aria-valuenow={avatar.xp_into_level}
+        >
+          <span style={{ width: `${xpPercent(avatar.xp_into_level, avatar.xp_for_next_level)}%` }} />
+        </div>
+        <span className="xp-text">
+          {avatar.xp_into_level} / {avatar.xp_for_next_level} XP
+        </span>
+      </div>
       <p className="panel-muted">
         {[
           avatar.cloned_from && 'clone',
@@ -362,6 +382,35 @@ export function AvatarPanel({ avatarId, refreshKey, onOpenAvatar }: AvatarPanelP
           {listingError && <p className="panel-error" style={{ margin: '6px 0 0', fontSize: '12px' }}>{listingError}</p>}
         </div>
       )}
+
+      <section>
+        <h3>
+          Badges{' '}
+          <span className="panel-muted">
+            {unlockedBadges} / {avatar.badges.length}
+          </span>
+        </h3>
+        <ul className="achievements">
+          {avatar.badges.map((badge) => (
+            <li
+              key={badge.id}
+              className={badge.unlocked_at ? 'achievement on' : 'achievement'}
+              title={
+                badge.unlocked_at
+                  ? `${badge.description} Unlocked ${new Date(badge.unlocked_at).toLocaleDateString()}.`
+                  : `${badge.description} Locked.`
+              }
+            >
+              <span className="achievement-icon" aria-hidden="true">
+                {badgeIcon(badge.id)}
+              </span>
+              <span className="achievement-name">{badge.name}</span>
+              {/* The colour alone must not carry the state (screen readers). */}
+              <span className="visually-hidden">{badge.unlocked_at ? ' (unlocked)' : ' (locked)'}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
 
       <section>
         <h3>

@@ -32,8 +32,10 @@ use super::auth::AuthUser;
 use super::{ApiError, AppState, near_rpc};
 use crate::backtest;
 use crate::db::avatars::{self, AvatarUpdate, AvatarWithConfig, NewAvatar, NewConfig};
-use crate::db::{decisions, equity, positions};
+use crate::db::progression::MilestoneRow;
+use crate::db::{decisions, equity, positions, progression as progression_db};
 use crate::live_events::main_village;
+use crate::progression::{self, ActivityCounts, BADGES};
 
 const MAX_NAME_CHARS: usize = 32;
 /// The characters a player can pick (F3.1, D54). **Keep in sync** with
@@ -83,6 +85,20 @@ pub struct AvatarSummaryDto {
     pub main_village: Option<String>,
     pub deposit_tx_hash: Option<String>,
     pub deposit_token: Option<String>,
+    /// Experience points, counted from live decisions and clones (D74).
+    pub xp: u64,
+    /// Derived from `xp`; everyone starts at 1.
+    pub level: u32,
+}
+
+/// One badge of the catalog, for one character (D74).
+#[derive(Debug, Serialize)]
+pub struct BadgeDto {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub description: &'static str,
+    /// `null` while the badge is still locked.
+    pub unlocked_at: Option<DateTime<Utc>>,
 }
 
 /// One avatar in detail (side panel, F8.3).
@@ -101,6 +117,20 @@ pub struct AvatarDetailDto {
     /// key is absent from the JSON for everyone else.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub persona: Option<String>,
+    /// XP earned since the current level started (the filled part of the bar).
+    pub xp_into_level: u64,
+    /// XP between the start of this level and the next (the whole bar).
+    pub xp_for_next_level: u64,
+    /// The whole catalog in display order, locked badges included.
+    pub badges: Vec<BadgeDto>,
+}
+
+/// What a character has earned: the counts XP is made of and its stored
+/// milestones. `Default` is a character that has done nothing yet.
+#[derive(Debug, Default)]
+struct Progress {
+    counts: ActivityCounts,
+    milestones: Vec<MilestoneRow>,
 }
 
 #[derive(Debug, Serialize)]
@@ -181,11 +211,14 @@ pub async fn list_avatars(
 ) -> Result<Json<Vec<AvatarSummaryDto>>, ApiError> {
     let avatars = avatars::list_avatars(&state.db, query.owner.as_deref()).await?;
     let mut all_positions = positions::list_all_positions(&state.db).await?;
+    // One grouped query for everyone, not one per character.
+    let all_counts = progression_db::load_counts(&state.db, None).await?;
     let body = avatars
         .into_iter()
         .map(|avatar| {
             let held = all_positions.remove(&avatar.id).unwrap_or_default();
-            summary(&avatar, &held)
+            let counts = all_counts.get(&avatar.id).copied().unwrap_or_default();
+            summary(&avatar, &held, &counts)
         })
         .collect();
     Ok(Json(body))
@@ -199,7 +232,8 @@ pub async fn get_avatar(
 ) -> Result<Json<AvatarDetailDto>, ApiError> {
     let avatar = load_avatar(&state, id).await?;
     let held = positions::load_positions(&state.db, id).await?;
-    Ok(Json(detail(avatar, held, viewer.as_ref())))
+    let progress = load_progress(&state, id).await?;
+    Ok(Json(detail(avatar, held, viewer.as_ref(), &progress)))
 }
 
 /// `GET /avatars/{id}/decisions?source=sim&limit=10`: newest first.
@@ -325,7 +359,8 @@ pub async fn create_avatar(
     };
     let avatar = load_avatar(&state, id).await?;
     let body = CreatedAvatarDto {
-        avatar: detail(avatar, BTreeMap::new(), Some(&user)),
+        // Just created and paused: nothing earned yet.
+        avatar: detail(avatar, BTreeMap::new(), Some(&user), &Progress::default()),
         backtest,
     };
     Ok((StatusCode::CREATED, Json(body)))
@@ -413,7 +448,31 @@ pub async fn update_avatar(
 
     let avatar = load_avatar(&state, id).await?;
     let held = positions::load_positions(&state.db, id).await?;
-    Ok(Json(detail(avatar, held, Some(&user))))
+    let progress = load_progress(&state, id).await?;
+    Ok(Json(detail(avatar, held, Some(&user), &progress)))
+}
+
+async fn load_progress(state: &AppState, id: Uuid) -> Result<Progress, ApiError> {
+    Ok(Progress {
+        counts: progression_db::counts_for_avatar(&state.db, id).await?,
+        milestones: progression_db::list_milestones(&state.db, id).await?,
+    })
+}
+
+/// The whole badge catalog, each with the date this character unlocked it.
+fn badges(milestones: &[MilestoneRow]) -> Vec<BadgeDto> {
+    BADGES
+        .iter()
+        .map(|badge| BadgeDto {
+            id: badge.id,
+            name: badge.name,
+            description: badge.description,
+            unlocked_at: milestones
+                .iter()
+                .find(|row| progression::badge_id(&row.milestone) == Some(badge.id))
+                .map(|row| row.reached_at),
+        })
+        .collect()
 }
 
 async fn load_avatar(state: &AppState, id: Uuid) -> Result<AvatarWithConfig, ApiError> {
@@ -422,7 +481,12 @@ async fn load_avatar(state: &AppState, id: Uuid) -> Result<AvatarWithConfig, Api
         .ok_or(ApiError::NotFound)
 }
 
-fn summary(avatar: &AvatarWithConfig, held: &BTreeMap<String, Decimal>) -> AvatarSummaryDto {
+fn summary(
+    avatar: &AvatarWithConfig,
+    held: &BTreeMap<String, Decimal>,
+    counts: &ActivityCounts,
+) -> AvatarSummaryDto {
+    let xp = progression::xp(counts);
     AvatarSummaryDto {
         id: avatar.id,
         owner: avatar.owner.clone(),
@@ -438,6 +502,8 @@ fn summary(avatar: &AvatarWithConfig, held: &BTreeMap<String, Decimal>) -> Avata
         main_village: main_village(held),
         deposit_tx_hash: avatar.deposit_tx_hash.clone(),
         deposit_token: avatar.deposit_token.clone(),
+        xp,
+        level: progression::level(xp),
     }
 }
 
@@ -446,10 +512,15 @@ fn detail(
     avatar: AvatarWithConfig,
     held: BTreeMap<String, Decimal>,
     viewer: Option<&AuthUser>,
+    progress: &Progress,
 ) -> AvatarDetailDto {
     let is_creator = viewer.is_some_and(|user| user.account_id == avatar.config_created_by);
+    let level = progression::level_progress(&progress.counts);
     AvatarDetailDto {
-        summary: summary(&avatar, &held),
+        summary: summary(&avatar, &held, &progress.counts),
+        xp_into_level: level.xp_into_level,
+        xp_for_next_level: level.xp_for_next_level,
+        badges: badges(&progress.milestones),
         persona: is_creator.then_some(avatar.persona),
         risk: avatar.risk,
         goal: avatar.goal,
@@ -676,8 +747,9 @@ pub async fn confirm_deposit(
         ));
     }
     let held = positions::load_positions(&state.db, id).await?;
+    let progress = load_progress(&state, id).await?;
     if avatar.deposit_tx_hash.is_some() {
-        return Ok(Json(detail(avatar, held, Some(&user))));
+        return Ok(Json(detail(avatar, held, Some(&user), &progress)));
     }
 
     let tx_hash = request.tx_hash.trim();
@@ -740,7 +812,7 @@ pub async fn confirm_deposit(
     db_tx.commit().await?;
 
     let updated = load_avatar(&state, id).await?;
-    Ok(Json(detail(updated, held, Some(&user))))
+    Ok(Json(detail(updated, held, Some(&user), &progress)))
 }
 
 #[cfg(test)]

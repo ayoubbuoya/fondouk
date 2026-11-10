@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 
 import { createGame } from '../game/createGame'
 import type { LandmarkId } from '../game/medinaLayout'
-import { townBus, type AvatarMoved } from '../game/townBus'
+import { townBus, type AvatarMilestone, type AvatarMoved } from '../game/townBus'
 import { getAvatars, getVillageHistory, getVillages, type AvatarSummary, type Village } from '../lib/api'
 import { connectLiveEvents, type LiveEvent } from '../lib/liveEvents'
+import { celebrationText } from '../lib/progression'
 
 /** F2.3: the sparkline covers 7 days. */
 const SPARKLINE_DAYS = 7
@@ -39,6 +40,7 @@ interface TownCanvasProps {
  * /ws apr_update  ─────────────────────────> "villages:updated"    walk in from the arena)
  * /ws avatar_move ─────────────────────────> "avatar:moved" (unknown id: reload /avatars)
  * /ws decision for an unknown id ──────────> reload /avatars (a new character)
+ * /ws milestone ───────────────────────────> "avatar:milestone" (name tag level + floating text)
  * scene "avatar:selected" / "village:selected" ─> onSelect
  * scene "landmark:selected" ─> onOpenLandmark (Souk -> marketplace, Hall of Fame -> leaderboard)
  * unmount ─> close /ws, destroy the game
@@ -151,6 +153,17 @@ export function TownCanvas({
         case 'arena_message':
           townBus.emit('arena:message', event)
           break
+        case 'milestone': {
+          // An unknown id needs no reload here: the `decision` event of the
+          // same tick arrived just before and already asked for one.
+          const milestone: AvatarMilestone = {
+            avatarId: event.avatar_id,
+            level: event.level,
+            text: celebrationText(event.kind, event.label),
+          }
+          townBus.emit('avatar:milestone', milestone)
+          break
+        }
       }
       onLiveEventRef.current(event)
     })

@@ -18,6 +18,8 @@ use uuid::Uuid;
 
 use super::{ApiError, AppState};
 use crate::db::leaderboard::{self, LeaderboardEquityPoint};
+use crate::db::progression as progression_db;
+use crate::progression;
 
 /// One row in the leaderboard.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +39,9 @@ pub struct LeaderboardEntryDto {
     pub listed: bool,
     pub price_yocto: Option<String>,
     pub is_new: bool,
+    /// Experience level (D74). Not a performance number: the ranking stays
+    /// on returns.
+    pub level: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -146,6 +151,7 @@ pub async fn get_leaderboard(
     let now = Utc::now();
     let since = now - Duration::days(30);
     let all_points = leaderboard::list_leaderboard_equity_since(&state.db, since).await?;
+    let all_counts = progression_db::load_counts(&state.db, None).await?;
 
     // Group points by avatar_id
     let mut points_by_avatar: BTreeMap<Uuid, Vec<LeaderboardEquityPoint>> = BTreeMap::new();
@@ -168,6 +174,7 @@ pub async fn get_leaderboard(
                 avatar.first_equity_ts,
                 now,
             );
+            let counts = all_counts.get(&avatar.id).copied().unwrap_or_default();
 
             LeaderboardEntryDto {
                 id: avatar.id,
@@ -185,6 +192,7 @@ pub async fn get_leaderboard(
                 listed: avatar.listed,
                 price_yocto: avatar.price_yocto.map(|p| p.to_string()),
                 is_new: metrics.is_new,
+                level: progression::level(progression::xp(&counts)),
             }
         })
         .collect();

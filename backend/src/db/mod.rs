@@ -9,6 +9,7 @@ pub mod equity;
 pub mod leaderboard;
 pub mod llm_cache;
 pub mod positions;
+pub mod progression;
 pub mod purchases;
 pub mod villages;
 pub mod yield_snapshots;

@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO avatar_milestones (avatar_id, milestone, reached_at)\n        SELECT $1::UUID, t.milestone, $3::TIMESTAMPTZ\n        FROM UNNEST($2::TEXT[]) AS t (milestone)\n        ON CONFLICT (avatar_id, milestone) DO NOTHING\n        RETURNING milestone\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "milestone",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatar_milestones",
+            "name": "milestone"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3257260c1bd2f0f5bd89d7d0cb1db4aef18ffabc6db04c4a14be1076c50d33ff"
+}

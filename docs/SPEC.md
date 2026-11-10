@@ -135,6 +135,15 @@ Priority: **P0** = must ship for demo. **P1** = should ship. **P2** = only if ti
 - F12.2 A "Judge tour" button in the left `NavDock`: a 5-step guided overlay (town, character panel, leaderboard, clone flow, vault safety).
 - Acceptance: a fresh visitor can complete the tour without connecting a wallet.
 
+### F13. Progression: XP, levels, badges (P1, D74)
+- F13.1 A character earns XP from its live activity (`sim` and `real` rows, never `backtest`): valid tick +5, valid MOVE or REBALANCE +15 more, arena message +10 more, each clone made of it +100. A guardrail block gives 0 and takes nothing.
+- F13.2 Level `n` starts at `50·n·(n−1)` XP (level 2 = 100, level 5 = 1,000, level 10 = 4,500). XP and level are computed on read, not stored.
+- F13.3 Badges: First Steps (first move), Diversified (money in 3 villages at once), Storyteller (10 arena messages), Kept in Line (5 guardrail blocks), In the Green (equity ≥ starting capital + 1%), Veteran (7 days live), Master's Mark (first clone), Guild Founder (5 clones).
+- F13.4 The first time a level or a badge is reached is stored with its date and announced once: `milestone` event on `/ws`, a gold ticker line, the level on the sprite's name tag and a floating text over it.
+- F13.5 The character sheet shows the level, an XP bar and all badges (locked ones greyed). The leaderboard has a level column and a "Fame" tab (most experienced characters, latest unlocks).
+- F13.6 XP is never part of the LLM prompt and never changes a decision. Level measures experience (activity); the leaderboard (F10) stays the ranking of returns. Players have no XP of their own.
+- Acceptance: a character's first move unlocks First Steps exactly once (one event, one stored row), and its 20th valid tick announces Level 2.
+
 ---
 
 ## 5. Action set

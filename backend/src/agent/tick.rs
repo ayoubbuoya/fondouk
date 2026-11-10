@@ -35,9 +35,10 @@ use super::{Action, MarketState, VillageQuote};
 use crate::db::avatars::{self, AvatarWithConfig};
 use crate::db::decisions::{self, NewDecision};
 use crate::db::equity::{self, EquityPoint};
-use crate::db::{arena, positions, villages, yield_snapshots};
+use crate::db::{arena, positions, progression as progression_db, villages, yield_snapshots};
 use crate::indexer::{is_stale, stop_requested};
 use crate::live_events::{LiveEvent, LiveSender, main_village, publish};
+use crate::progression::{self, Milestone, Snapshot};
 use crate::sim::ledger::Ledger;
 
 /// `decisions.source` and `equity_snapshots.source` for live simulated avatars.
@@ -236,6 +237,9 @@ async fn tick_avatar(
         let msg_id = arena::insert_arena_message(&mut tx, avatar.id, Some(decision_id), now, text).await?;
         arena_msg_id = Some(msg_id);
     }
+    // Progression (D74) is part of the same transaction: a tick that is
+    // rolled back unlocks nothing.
+    let unlocked = record_milestones(&mut tx, avatar, &ledger, now).await?;
     // An early `?` above drops `tx` without commit: sqlx rolls it all back.
     tx.commit().await?;
 
@@ -277,6 +281,24 @@ async fn tick_avatar(
             },
         );
     }
+    for stored in &unlocked.milestones {
+        // `None` only for a milestone this code did not write; nothing to say.
+        let Some(milestone) = Milestone::parse(stored) else {
+            continue;
+        };
+        publish(
+            events,
+            LiveEvent::Milestone {
+                avatar_id: avatar.id,
+                avatar_name: avatar.name.clone(),
+                milestone: stored.clone(),
+                kind: milestone.kind(),
+                label: milestone.label(),
+                level: unlocked.level,
+                ts: now,
+            },
+        );
+    }
 
     tracing::info!(
         avatar = %avatar.id,
@@ -287,6 +309,46 @@ async fn tick_avatar(
         "agent decided"
     );
     Ok(())
+}
+
+/// What one tick unlocked for a character.
+struct Unlocked {
+    /// The level after this tick.
+    level: u32,
+    /// Milestones stored for the first time by this tick (often none).
+    milestones: Vec<String>,
+}
+
+/// Counts what the character has done (this tick's decision included: it was
+/// inserted on the same connection), works out the milestones it should have,
+/// and stores the missing ones (D74).
+///
+/// This is the only place milestones are written. XP from a clone sale needs
+/// no hook in the marketplace: the seller's next tick sees the new clone.
+/// The LLM never sees any of this, so it cannot influence a decision.
+async fn record_milestones(
+    conn: &mut sqlx::PgConnection,
+    avatar: &AvatarWithConfig,
+    ledger: &Ledger,
+    now: DateTime<Utc>,
+) -> Result<Unlocked> {
+    let counts = progression_db::counts_for_avatar(&mut *conn, avatar.id).await?;
+    let snapshot = Snapshot {
+        villages_held: ledger
+            .positions()
+            .values()
+            .filter(|value| **value > Decimal::ZERO)
+            .count(),
+        equity_usd: ledger.equity(),
+        starting_capital_usd: avatar.starting_capital_usd,
+        now,
+    };
+    let earned = progression::earned_milestones(&counts, &snapshot);
+    let milestones = progression_db::insert_milestones(conn, avatar.id, &earned, now).await?;
+    Ok(Unlocked {
+        level: progression::level(progression::xp(&counts)),
+        milestones,
+    })
 }
 
 /// Turns an allowed decision into HOLD after the ledger refused it, keeping
@@ -770,6 +832,7 @@ mod tests {
 
     /// D43: a move is announced as `decision` then `avatar_move` (cash ->
     /// the largest position; a 50/50 tie goes to the smallest village id).
+    /// D74: its first move also unlocks the "First Steps" badge, announced last.
     #[sqlx::test]
     async fn a_move_publishes_a_decision_and_an_avatar_move(pool: PgPool) {
         seed_villages(&pool, None).await;
@@ -785,7 +848,7 @@ mod tests {
             .unwrap();
 
         let published = drain(&mut receiver);
-        assert_eq!(published.len(), 2, "{published:?}");
+        assert_eq!(published.len(), 3, "{published:?}");
         let LiveEvent::Decision {
             avatar_id,
             valid,
@@ -808,8 +871,96 @@ mod tests {
                 to: Some("rhea-lend-usdc".to_string()),
             }
         );
+        assert_eq!(
+            published[2],
+            LiveEvent::Milestone {
+                avatar_id: avatar,
+                avatar_name: "Hanna".to_string(),
+                milestone: "badge:first_steps".to_string(),
+                kind: "badge",
+                label: "First Steps".to_string(),
+                // One valid tick (5) + one move (15) = 20 XP: still level 1.
+                level: 1,
+                ts: now(),
+            }
+        );
         let serialized = serde_json::to_string(&published).unwrap();
         assert!(!serialized.contains("Secret plan"), "no persona in events");
+    }
+
+    /// D74: a badge is celebrated once. The second tick is refused by the
+    /// cooldown, earns nothing new, and announces nothing again.
+    #[sqlx::test]
+    async fn a_badge_is_unlocked_and_announced_only_once(pool: PgPool) {
+        seed_villages(&pool, None).await;
+        let avatar = create_avatar(&pool, "Split lending.", "low").await;
+        let answer = r#"{"action":"REBALANCE","weights":{"rhea-lend-usdc":50,"rhea-lend-usdt":50},"reason":"Split."}"#;
+        let llm = client(&fake_llm(answer, Arc::new(AtomicUsize::new(0))).await);
+        let events = channel();
+        let mut receiver = events.subscribe();
+
+        tick_once(&pool, &llm, TWO_HOURS, &events, now())
+            .await
+            .unwrap();
+        tick_once(&pool, &llm, TWO_HOURS, &events, later(1))
+            .await
+            .unwrap();
+
+        let milestones: Vec<LiveEvent> = drain(&mut receiver)
+            .into_iter()
+            .filter(|event| matches!(event, LiveEvent::Milestone { .. }))
+            .collect();
+        assert_eq!(milestones.len(), 1, "{milestones:?}");
+        let stored = progression_db::list_milestones(&pool, avatar).await.unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].milestone, "badge:first_steps");
+        assert_eq!(stored[0].reached_at, now(), "the first tick's time is kept");
+    }
+
+    /// D74: 20 valid ticks at 5 XP reach 100 XP = level 2, announced on the
+    /// tick that crosses the line and not before.
+    #[sqlx::test]
+    async fn reaching_a_level_is_announced_on_the_tick_that_crosses_it(pool: PgPool) {
+        seed_villages(&pool, None).await;
+        let avatar = create_avatar(&pool, "Wait.", "low").await;
+        let llm = client(
+            &fake_llm(
+                r#"{"action":"HOLD","reason":"Wait."}"#,
+                Arc::new(AtomicUsize::new(0)),
+            )
+            .await,
+        );
+        // 20 ticks span more than two hours: keep the villages fresh.
+        const ONE_DAY: Duration = Duration::from_secs(86_400);
+        let events = channel();
+        let mut receiver = events.subscribe();
+
+        for tick in 0..19 {
+            tick_once(&pool, &llm, ONE_DAY, &events, later(tick))
+                .await
+                .unwrap();
+        }
+        let before = drain(&mut receiver);
+        assert!(
+            !before
+                .iter()
+                .any(|event| matches!(event, LiveEvent::Milestone { .. })),
+            "95 XP is still level 1"
+        );
+
+        tick_once(&pool, &llm, ONE_DAY, &events, later(19))
+            .await
+            .unwrap();
+
+        let after = drain(&mut receiver);
+        assert!(
+            after.iter().any(|event| matches!(
+                event,
+                LiveEvent::Milestone { avatar_id, kind: "level", label, level: 2, .. }
+                    if *avatar_id == avatar && label == "Level 2"
+            )),
+            "{after:?}"
+        );
     }
 
     #[sqlx::test]

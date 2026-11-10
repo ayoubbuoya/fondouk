@@ -8,7 +8,8 @@
 //! indexer ──apr_update──┐
 //!                       ├─> broadcast channel ─> /ws client 1, 2, ... N
 //! tick ──decision──────┤
-//!      ──avatar_move───┘
+//!      ──avatar_move───┤
+//!      ──milestone─────┘
 //! ```
 //!
 //! **Public data only.** Events never carry the persona (D7): it is not a
@@ -63,6 +64,21 @@ pub enum LiveEvent {
         avatar_name: String,
         sprite: String,
         text: String,
+        ts: DateTime<Utc>,
+    },
+    /// A character reached a new level or unlocked a badge (D74). Sent once
+    /// per milestone, after the tick that earned it is committed.
+    Milestone {
+        avatar_id: Uuid,
+        avatar_name: String,
+        /// As stored: `level:4` or `badge:first_steps`.
+        milestone: String,
+        /// `level` or `badge`.
+        kind: &'static str,
+        /// Ready to show: "Level 4" or "First Steps".
+        label: String,
+        /// The character's level after this tick, for its name tag.
+        level: u32,
         ts: DateTime<Utc>,
     },
 }

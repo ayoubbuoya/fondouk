@@ -60,10 +60,30 @@ export interface AvatarSummary {
   main_village: string | null
   deposit_tx_hash: string | null
   deposit_token: string | null
+  /** Experience points, counted by the backend from live decisions and clones (D74). */
+  xp: number
+  /** Derived from `xp`; everyone starts at 1. */
+  level: number
+}
+
+/** One badge of the backend's catalog, for one character (D74). */
+export interface Badge {
+  /** Stable id such as `first_steps`; `lib/progression.ts` maps it to an icon. */
+  id: string
+  name: string
+  description: string
+  /** ISO time, or `null` while the badge is still locked. */
+  unlocked_at: string | null
 }
 
 /** `GET /avatars/{id}`. The persona is never read by the UI here (D7). */
 export interface AvatarDetail extends AvatarSummary {
+  /** XP earned since the current level started (the filled part of the bar). */
+  xp_into_level: number
+  /** XP between the start of this level and the next (the whole bar). */
+  xp_for_next_level: number
+  /** The whole catalog in display order, locked badges included. */
+  badges: Badge[]
   risk: 'low' | 'medium' | 'high'
   goal: 'steady_income' | 'max_yield' | 'protect_capital'
   starting_capital_usd: string
@@ -315,6 +335,8 @@ export interface LeaderboardEntry {
   listed: boolean
   price_yocto: string | null
   is_new: boolean
+  /** Experience level (D74); not a performance number. */
+  level: number
 }
 
 /**
@@ -323,6 +345,39 @@ export interface LeaderboardEntry {
 export function getLeaderboard(tab?: 'main' | 'new'): Promise<LeaderboardEntry[]> {
   const query = tab ? `?tab=${tab}` : ''
   return request('GET', `/leaderboard${query}`)
+}
+
+/** One character in the Hall of Fame's "most experienced" list (D74). */
+export interface FameEntry {
+  id: string
+  name: string
+  sprite: string
+  owner: string
+  mode: AvatarMode
+  xp: number
+  level: number
+  badge_count: number
+}
+
+/** One line of the Hall of Fame's "latest unlocks" feed. */
+export interface FameMilestone {
+  avatar_id: string
+  avatar_name: string
+  sprite: string
+  kind: 'level' | 'badge'
+  /** Ready to show: "Level 4" or "First Steps". */
+  label: string
+  reached_at: string
+}
+
+/** `GET /hall-of-fame`: `top` has the most XP first, `recent` the newest first. */
+export interface HallOfFame {
+  top: FameEntry[]
+  recent: FameMilestone[]
+}
+
+export function getHallOfFame(): Promise<HallOfFame> {
+  return request('GET', '/hall-of-fame')
 }
 
 /**

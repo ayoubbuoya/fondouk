@@ -3,15 +3,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { faceUrl } from '../game/sprites'
 import { getLeaderboard, type LeaderboardEntry } from '../lib/api'
 import { formatAge, formatDrawdown, formatNear, formatPercent } from '../lib/format'
+import { HallOfFame } from './HallOfFame'
 
 interface LeaderboardPanelProps {
   onSelectAvatar: (avatarId: string) => void
 }
 
-type Tab = 'main' | 'new'
+/** `main` and `new` rank by returns (F10); `fame` shows experience (D74). */
+type Tab = 'main' | 'new' | 'fame'
 
 type SortKey =
   | 'name'
+  | 'level'
   | 'owner'
   | 'mode'
   | 'return_30d'
@@ -80,6 +83,9 @@ export function LeaderboardPanel({ onSelectAvatar }: LeaderboardPanelProps) {
         case 'name':
           cmp = a.name.localeCompare(b.name)
           break
+        case 'level':
+          cmp = a.level - b.level
+          break
         case 'owner':
           cmp = a.owner.localeCompare(b.owner)
           break
@@ -132,6 +138,7 @@ export function LeaderboardPanel({ onSelectAvatar }: LeaderboardPanelProps) {
       setSortKey(key)
       // Default to descending for returns, moves, clones; ascending for strings
       const defaultDesc = [
+        'level',
         'return_30d',
         'return_7d',
         'max_drawdown',
@@ -143,6 +150,9 @@ export function LeaderboardPanel({ onSelectAvatar }: LeaderboardPanelProps) {
       setSortAsc(!defaultDesc)
     }
   }
+
+  /** The Fame tab has its own content and its own request (`HallOfFame`). */
+  const showsRanking = tab !== 'fame'
 
   const sortIndicator = (key: SortKey) => {
     if (sortKey !== key) return <span className="sort-hint">↕</span>
@@ -177,10 +187,21 @@ export function LeaderboardPanel({ onSelectAvatar }: LeaderboardPanelProps) {
         >
           New (&lt;7d) <span className="tab-badge">{newCount}</span>
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'fame'}
+          className={`leaderboard-tab ${tab === 'fame' ? 'active' : ''}`}
+          onClick={() => setTab('fame')}
+        >
+          🏛️ Fame
+        </button>
       </div>
 
-      {loading && <p className="panel-status">Loading leaderboard…</p>}
-      {error && (
+      {tab === 'fame' && <HallOfFame onSelectAvatar={onSelectAvatar} />}
+
+      {showsRanking && loading && <p className="panel-status">Loading leaderboard…</p>}
+      {showsRanking && error && (
         <div className="panel-error-box">
           <p className="panel-error">{error}</p>
           <button type="button" onClick={loadData}>
@@ -189,7 +210,7 @@ export function LeaderboardPanel({ onSelectAvatar }: LeaderboardPanelProps) {
         </div>
       )}
 
-      {!loading && !error && sortedEntries.length === 0 && (
+      {showsRanking && !loading && !error && sortedEntries.length === 0 && (
         <div className="leaderboard-empty">
           <p>No characters in this tab yet.</p>
           {tab === 'main' && newCount > 0 && (
@@ -200,13 +221,16 @@ export function LeaderboardPanel({ onSelectAvatar }: LeaderboardPanelProps) {
         </div>
       )}
 
-      {!loading && !error && sortedEntries.length > 0 && (
+      {showsRanking && !loading && !error && sortedEntries.length > 0 && (
         <div className="leaderboard-table-wrapper">
           <table className="leaderboard-table">
             <thead>
               <tr>
                 <th onClick={() => handleSort('name')} className="th-clickable">
                   Avatar {sortIndicator('name')}
+                </th>
+                <th onClick={() => handleSort('level')} className="th-clickable th-num" title="Experience level">
+                  Lv {sortIndicator('level')}
                 </th>
                 <th onClick={() => handleSort('owner')} className="th-clickable">
                   Owner {sortIndicator('owner')}
@@ -254,6 +278,7 @@ export function LeaderboardPanel({ onSelectAvatar }: LeaderboardPanelProps) {
                       <img src={faceUrl(row.sprite)} alt="" className="leaderboard-face" />
                       <span className="leaderboard-name">{row.name}</span>
                     </td>
+                    <td className="th-num">{row.level}</td>
                     <td className="td-owner" title={row.owner}>
                       {truncateAccount(row.owner)}
                     </td>

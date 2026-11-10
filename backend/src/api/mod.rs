@@ -9,12 +9,14 @@
 //! | `PATCH /avatars/{id}` | the owner (D40) |
 //! | `GET /marketplace/listings` | anyone |
 //! | `POST /marketplace/claim` | logged in (turns a paid purchase into a clone) |
+//! | `GET /leaderboard`, `/hall-of-fame` | anyone (ranking by returns; experience and badges, D74) |
 //! | `GET /ws` | anyone (public events only, D43) |
 
 pub mod arena;
 pub mod auth;
 mod avatars;
 pub mod demo;
+mod hall_of_fame;
 pub mod leaderboard;
 mod marketplace;
 pub mod near_rpc;
@@ -89,6 +91,7 @@ pub fn router(state: AppState) -> Router {
         .route("/marketplace/claim", post(marketplace::claim_purchase))
         .route("/marketplace/clone_free", post(marketplace::clone_free))
         .route("/leaderboard", get(leaderboard::get_leaderboard))
+        .route("/hall-of-fame", get(hall_of_fame::get_hall_of_fame))
         .route("/arena/feed", get(arena::get_feed))
         .route("/demo/shock", post(demo::market_shock))
         .route("/demo/tick", post(demo::trigger_tick))

@@ -17,6 +17,7 @@
  * | `arena:selected`   | none               | TownScene -> React |
  * | `landmark:selected`| `LandmarkId`       | TownScene -> React (a landmark building was clicked) |
  * | `arena:message`    | `ArenaMessage`     | React -> TownScene |
+ * | `avatar:milestone` | `AvatarMilestone`  | React -> TownScene (a new level or badge, D74) |
  * | `avatars:reload`   | none               | App -> TownCanvas (after a create, D63) |
  */
 
@@ -35,6 +36,14 @@ export interface VillageHistory {
 export interface AvatarMoved {
   avatarId: string
   to: string | null
+}
+
+/** From the `/ws` `milestone` event: the name tag shows `level`, `text` floats up. */
+export interface AvatarMilestone {
+  avatarId: string
+  level: number
+  /** Already worded (`lib/progression.ts` `celebrationText`). */
+  text: string
 }
 
 export const townBus = new Events.EventEmitter()

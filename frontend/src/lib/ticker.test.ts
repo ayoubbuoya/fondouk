@@ -67,6 +67,29 @@ describe('tickerLine', () => {
     expect(line?.tone).toBe('say')
   })
 
+  it('celebrates a new level and a new badge', () => {
+    const milestone = {
+      type: 'milestone' as const,
+      avatar_id: 'a1',
+      avatar_name: 'Amira',
+      level: 4,
+      ts: '2026-11-10T10:00:00Z',
+    }
+
+    const level = tickerLine({ ...milestone, milestone: 'level:4', kind: 'level', label: 'Level 4' }, names)
+    const badge = tickerLine(
+      { ...milestone, milestone: 'badge:first_steps', kind: 'badge', label: 'First Steps' },
+      names,
+    )
+
+    expect(level?.text).toBe('⭐ Amira reached Level 4')
+    expect(level?.tone).toBe('unlock')
+    expect(level?.avatarId).toBe('a1')
+    expect(badge?.text).toBe('🏅 Amira unlocked First Steps')
+    // Different ids, so both lines of one tick are kept.
+    expect(level?.id).not.toBe(badge?.id)
+  })
+
   it('has no line for SAY decisions, moves, APY updates or unknown actions', () => {
     expect(tickerLine(decision({ action: { action: 'SAY', text: 'hi' } }), names)).toBeNull()
     expect(tickerLine(decision({ action: 'broken' }), names)).toBeNull()

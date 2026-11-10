@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT milestone, reached_at\n        FROM avatar_milestones\n        WHERE avatar_id = $1\n        ORDER BY reached_at, milestone\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "milestone",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatar_milestones",
+            "name": "milestone"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "reached_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "avatar_milestones",
+            "name": "reached_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "64fe85b18855ff95b94039e6032fd3494e693e9e2a25b8acf1b82c8dbb188d48"
+}
