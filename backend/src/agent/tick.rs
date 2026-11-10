@@ -189,18 +189,6 @@ async fn tick_avatar(
         hold_after_ledger_error(&mut decision);
     }
 
-    // Rate limits for arena messages (SPEC F9.3: 1/hr per avatar, 20/hr total).
-    if !options.relax_arena_rate_limit
-        && let Action::Say { .. } = decision.applied
-    {
-        let one_hour_ago = now - chrono::Duration::hours(1);
-        let avatar_msg_count = arena::avatar_message_count_since(pool, avatar.id, one_hour_ago).await?;
-        let total_msg_count = arena::total_message_count_since(pool, one_hour_ago).await?;
-        if avatar_msg_count >= 1 || total_msg_count >= 20 {
-            hold_after_arena_rate_limit(&mut decision);
-        }
-    }
-
     // 4. Store everything in one transaction.
     let row = NewDecision {
         avatar_id: avatar.id,
@@ -232,11 +220,32 @@ async fn tick_avatar(
     };
     equity::insert_equity_point(&mut *tx, avatar.id, SOURCE, &point).await?;
 
+    // Post to arena on every valid decision:
+    // If the avatar explicitly chose `SAY`, use its text.
+    // For MOVE, REBALANCE, and HOLD, use the avatar's public commentary (reason).
     let mut arena_msg_id = None;
-    if let Action::Say { ref text, .. } = decision.applied {
-        let msg_id = arena::insert_arena_message(&mut tx, avatar.id, Some(decision_id), now, text).await?;
+    let reason_public = decision.reason_public();
+    let arena_text = match &decision.applied {
+        Action::Say { text, .. } => Some(text.as_str()),
+        _ if decision.rejected_rule.is_none() => {
+            if !reason_public.trim().is_empty() {
+                Some(reason_public.as_str())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+
+    let arena_message_to_publish = if let Some(text) = arena_text {
+        let msg_id =
+            arena::insert_arena_message(&mut tx, avatar.id, Some(decision_id), now, text.as_ref())
+                .await?;
         arena_msg_id = Some(msg_id);
-    }
+        Some(text.to_string())
+    } else {
+        None
+    };
     // Progression (D74) is part of the same transaction: a tick that is
     // rolled back unlocks nothing.
     let unlocked = record_milestones(&mut tx, avatar, &ledger, now).await?;
@@ -257,7 +266,7 @@ async fn tick_avatar(
             equity_usd: point.equity_usd,
         },
     );
-    if let (Some(msg_id), Action::Say { text, .. }) = (arena_msg_id, &decision.applied) {
+    if let (Some(msg_id), Some(text)) = (arena_msg_id, arena_message_to_publish) {
         publish(
             events,
             LiveEvent::ArenaMessage {
@@ -265,7 +274,7 @@ async fn tick_avatar(
                 avatar_id: avatar.id,
                 avatar_name: avatar.name.clone(),
                 sprite: avatar.sprite.clone(),
-                text: text.clone(),
+                text,
                 ts: now,
             },
         );
