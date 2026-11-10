@@ -34,6 +34,8 @@ pub struct NewAvatar {
     /// A create from the UI starts paused, so the owner reads the backtest
     /// first (D63).
     pub active: bool,
+    pub listed: bool,
+    pub price_yocto: Option<Decimal>,
 }
 
 /// A character together with the strategy it runs.
@@ -52,6 +54,7 @@ pub struct AvatarWithConfig {
     pub active: bool,
     pub cloned_from: Option<Uuid>,
     pub listed: bool,
+    pub price_yocto: Option<Decimal>,
     pub created_at: DateTime<Utc>,
     pub config_id: Uuid,
     pub persona: String,
@@ -73,6 +76,8 @@ pub struct AvatarUpdate {
     pub active: bool,
     /// A new strategy row when the persona changed, else the current one.
     pub config_id: Uuid,
+    pub listed: bool,
+    pub price_yocto: Option<Decimal>,
 }
 
 /// Creates the user if it does not exist yet. Calling it again is a no-op.
@@ -147,8 +152,8 @@ pub async fn insert_avatar<'e>(
 ) -> sqlx::Result<Uuid> {
     sqlx::query_scalar!(
         r#"
-        INSERT INTO avatars (owner, config_id, name, sprite, mode, starting_capital_usd, cash_usd, active)
-        VALUES ($1, $2, $3, $4, $5, $6, $6, $7)
+        INSERT INTO avatars (owner, config_id, name, sprite, mode, starting_capital_usd, cash_usd, active, listed, price_yocto)
+        VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9)
         RETURNING id
         "#,
         avatar.owner,
@@ -158,6 +163,8 @@ pub async fn insert_avatar<'e>(
         avatar.mode,
         avatar.starting_capital_usd,
         avatar.active,
+        avatar.listed,
+        avatar.price_yocto,
     )
     .fetch_one(executor)
     .await
@@ -173,6 +180,7 @@ pub struct NewClone {
     pub config_id: Uuid,
     pub name: String,
     pub sprite: String,
+    pub mode: String,
     pub starting_capital_usd: Decimal,
 }
 
@@ -191,13 +199,14 @@ pub async fn insert_clone<'e>(
         r#"
         INSERT INTO avatars
             (owner, config_id, name, sprite, mode, starting_capital_usd, cash_usd, cloned_from)
-        VALUES ($1, $2, $3, $4, 'sim', $5, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $6, $7)
         RETURNING id
         "#,
         clone.owner,
         clone.config_id,
         clone.name,
         clone.sprite,
+        clone.mode,
         clone.starting_capital_usd,
         clone.source_id,
     )
@@ -267,7 +276,7 @@ pub async fn get_avatar_with_config(
         AvatarWithConfig,
         r#"
         SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,
-               a.active, a.cloned_from, a.listed, a.created_at,
+               a.active, a.cloned_from, a.listed, a.price_yocto, a.created_at,
                c.id AS config_id, c.persona, c.risk, c.goal,
                c.created_by AS config_created_by,
                a.deposit_tx_hash, a.deposit_token
@@ -293,7 +302,7 @@ pub async fn list_avatars(
         AvatarWithConfig,
         r#"
         SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,
-               a.active, a.cloned_from, a.listed, a.created_at,
+               a.active, a.cloned_from, a.listed, a.price_yocto, a.created_at,
                c.id AS config_id, c.persona, c.risk, c.goal,
                c.created_by AS config_created_by,
                a.deposit_tx_hash, a.deposit_token
@@ -321,12 +330,14 @@ pub async fn update_avatar<'e>(
     update: &AvatarUpdate,
 ) -> sqlx::Result<()> {
     let result = sqlx::query!(
-        "UPDATE avatars SET name = $2, sprite = $3, active = $4, config_id = $5 WHERE id = $1",
+        "UPDATE avatars SET name = $2, sprite = $3, active = $4, config_id = $5, listed = $6, price_yocto = $7 WHERE id = $1",
         avatar_id,
         update.name,
         update.sprite,
         update.active,
         update.config_id,
+        update.listed,
+        update.price_yocto,
     )
     .execute(executor)
     .await?;
@@ -343,7 +354,7 @@ pub async fn list_active_avatars(pool: &PgPool, mode: &str) -> sqlx::Result<Vec<
         AvatarWithConfig,
         r#"
         SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,
-               a.active, a.cloned_from, a.listed, a.created_at,
+               a.active, a.cloned_from, a.listed, a.price_yocto, a.created_at,
                c.id AS config_id, c.persona, c.risk, c.goal,
                c.created_by AS config_created_by,
                a.deposit_tx_hash, a.deposit_token
@@ -382,6 +393,8 @@ mod tests {
             mode: "sim".to_string(),
             starting_capital_usd: Decimal::from(capital),
             active: true,
+            listed: false,
+            price_yocto: None,
         }
     }
 
@@ -598,6 +611,8 @@ mod tests {
                 sprite: "trader_2".to_string(),
                 active: false,
                 config_id: new_config_id,
+                listed: false,
+                price_yocto: None,
             },
         )
         .await
@@ -621,6 +636,8 @@ mod tests {
                     sprite: "x".to_string(),
                     active: true,
                     config_id,
+                    listed: false,
+                    price_yocto: None,
                 }
             )
             .await,

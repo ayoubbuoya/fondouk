@@ -15,6 +15,7 @@
 //! The summary DTO has no persona field at all.
 
 use std::collections::BTreeMap;
+use std::str::FromStr;
 
 use axum::{
     Json,
@@ -54,7 +55,7 @@ const MAX_AVATARS_PER_ACCOUNT: i64 = 3;
 const RISKS: [&str; 3] = ["low", "medium", "high"];
 const GOALS: [&str; 3] = ["steady_income", "max_yield", "protect_capital"];
 /// Sim starting capital options in USD (Q-E).
-const STARTING_CAPITALS: [u64; 3] = [1_000, 10_000, 100_000];
+pub const STARTING_CAPITALS: [u64; 3] = [1_000, 10_000, 100_000];
 /// Real mode starting capital options in tUSDC / USD.
 pub const REAL_STARTING_CAPITALS: [u64; 4] = [10, 25, 50, 100];
 /// `decisions.source` / `equity_snapshots.source` values; never mixed in one answer.
@@ -73,6 +74,7 @@ pub struct AvatarSummaryDto {
     pub active: bool,
     pub cloned_from: Option<Uuid>,
     pub listed: bool,
+    pub price_yocto: Option<String>,
     pub created_at: DateTime<Utc>,
     /// Cash plus positions as last stored by the tick (not accrued since).
     pub equity_usd: Decimal,
@@ -155,6 +157,8 @@ pub struct CreateAvatarRequest {
     goal: String,
     mode: String,
     starting_capital_usd: u64,
+    listed: Option<bool>,
+    price_yocto: Option<String>,
 }
 
 /// Body of `PATCH /avatars/{id}`: only the fields to change. `risk` and
@@ -166,6 +170,8 @@ pub struct UpdateAvatarRequest {
     sprite: Option<String>,
     active: Option<bool>,
     persona: Option<String>,
+    listed: Option<bool>,
+    price_yocto: Option<String>,
 }
 
 /// `GET /avatars?owner=`: every avatar (all owners, or one owner).
@@ -292,6 +298,8 @@ pub async fn create_avatar(
             mode: valid.mode.clone(),
             starting_capital_usd: Decimal::from(valid.starting_capital_usd),
             active: false,
+            listed: valid.listed,
+            price_yocto: valid.price_yocto,
         },
     )
     .await?;
@@ -341,6 +349,11 @@ pub async fn update_avatar(
     if request.persona.is_some() && current.cloned_from.is_some() {
         return Err(ApiError::Forbidden);
     }
+    if current.cloned_from.is_some() && request.listed == Some(true) {
+        return Err(ApiError::BadRequest(
+            "clones cannot be listed for sale".to_string(),
+        ));
+    }
     // Validate everything before writing anything.
     let name = request.name.as_deref().map(validate_name).transpose();
     let sprite = request.sprite.as_deref().map(validate_sprite).transpose();
@@ -350,6 +363,26 @@ pub async fn update_avatar(
         sprite.map_err(ApiError::BadRequest)?,
         persona.map_err(ApiError::BadRequest)?,
     );
+
+    let listed = request.listed.unwrap_or(current.listed);
+    let price_yocto = if listed {
+        if let Some(ref p_str) = request.price_yocto {
+            let p = Decimal::from_str(p_str)
+                .map_err(|_| ApiError::BadRequest("price_yocto must be a valid number".to_string()))?;
+            if p <= Decimal::ZERO {
+                return Err(ApiError::BadRequest(
+                    "price_yocto must be greater than zero".to_string(),
+                ));
+            }
+            Some(p)
+        } else {
+            current
+                .price_yocto
+                .or_else(|| Decimal::from_str("500000000000000000000000").ok())
+        }
+    } else {
+        None
+    };
 
     let mut tx = state.db.begin().await?;
     let config_id = match persona {
@@ -372,6 +405,8 @@ pub async fn update_avatar(
         sprite: sprite.unwrap_or_else(|| current.sprite.clone()),
         active: request.active.unwrap_or(current.active),
         config_id,
+        listed,
+        price_yocto,
     };
     avatars::update_avatar(&mut *tx, id, &update).await?;
     tx.commit().await?;
@@ -397,6 +432,7 @@ fn summary(avatar: &AvatarWithConfig, held: &BTreeMap<String, Decimal>) -> Avata
         active: avatar.active,
         cloned_from: avatar.cloned_from,
         listed: avatar.listed,
+        price_yocto: avatar.price_yocto.map(|p| p.to_string()),
         created_at: avatar.created_at,
         equity_usd: avatar.cash_usd + held.values().sum::<Decimal>(),
         main_village: main_village(held),
@@ -452,6 +488,8 @@ struct ValidCreate {
     goal: String,
     mode: String,
     starting_capital_usd: u64,
+    listed: bool,
+    price_yocto: Option<Decimal>,
 }
 
 /// Checks a create request. Pure, so every rule is unit-tested. The
@@ -479,6 +517,21 @@ fn validate_create(request: CreateAvatarRequest) -> Result<ValidCreate, String> 
         }
         _ => return Err("mode must be sim or real".to_string()),
     }
+    let listed = request.listed.unwrap_or(false);
+    let price_yocto = if listed {
+        let p_str = request
+            .price_yocto
+            .ok_or_else(|| "price_yocto is required when listed is true".to_string())?;
+        let p = Decimal::from_str(&p_str)
+            .map_err(|_| "price_yocto must be a valid number".to_string())?;
+        if p <= Decimal::ZERO {
+            return Err("price_yocto must be greater than zero".to_string());
+        }
+        Some(p)
+    } else {
+        None
+    };
+
     Ok(ValidCreate {
         name,
         sprite,
@@ -487,6 +540,8 @@ fn validate_create(request: CreateAvatarRequest) -> Result<ValidCreate, String> 
         goal: request.goal,
         mode: request.mode,
         starting_capital_usd: request.starting_capital_usd,
+        listed,
+        price_yocto,
     })
 }
 
@@ -1102,6 +1157,8 @@ mod tests {
                 mode: "sim".to_string(),
                 starting_capital_usd: Decimal::from(1000),
                 active: true,
+                listed: false,
+                price_yocto: None,
             },
         )
         .await

@@ -198,7 +198,11 @@ export default function App() {
       {selection && (
         <SidePanel onClose={() => setSelection(null)}>
           {selection.kind === 'avatar' ? (
-            <AvatarPanel avatarId={selection.id} refreshKey={refreshKey} />
+            <AvatarPanel
+              avatarId={selection.id}
+              refreshKey={refreshKey}
+              onOpenAvatar={(id) => select({ kind: 'avatar', id })}
+            />
           ) : (
             <VillagePanel
               villageId={selection.id}

@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react'
 
 import { faceUrl } from '../game/sprites'
 import {
-  ApiError,
   claimPurchase,
   getListings,
   type MarketplaceListing,
 } from '../lib/api'
 import { formatNear } from '../lib/format'
-import { buyClone, currentAccount } from '../lib/wallet'
+import { currentAccount } from '../lib/wallet'
+import { CloneModal } from './CloneModal'
 
 interface MarketplacePanelProps {
   /** Opens a character's panel (used for the new clone). */
@@ -26,19 +26,6 @@ const GOAL_LABELS: Record<MarketplaceListing['goal'], string> = {
   protect_capital: 'protect capital',
 }
 
-/**
- * F11: characters for sale, and the Buy button.
- *
- * ```text
- * Buy -> wallet pays (buy_clone) -> tx hash -> POST /marketplace/claim -> clone
- * ```
- *
- * The payment and the clone are two steps: the money moves on chain first, then
- * the backend verifies the transaction and creates the clone. If the second
- * step fails (backend down, tab closed), nothing is lost: the hash can be sent
- * again, here with "Retry" or by pasting it in the box at the bottom.
- * Prices come from the contract; the persona is never shown (D7).
- */
 export function MarketplacePanel({ onOpenAvatar }: MarketplacePanelProps) {
   const [listings, setListings] = useState<MarketplaceListing[] | null>(null)
   const [account, setAccount] = useState<string | null>(null)
@@ -46,6 +33,7 @@ export function MarketplacePanel({ onOpenAvatar }: MarketplacePanelProps) {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [pastedHash, setPastedHash] = useState('')
+  const [selectedForClone, setSelectedForClone] = useState<MarketplaceListing | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -72,11 +60,10 @@ export function MarketplacePanel({ onOpenAvatar }: MarketplacePanelProps) {
       setPastedHash('')
     } catch (err) {
       console.error('claim failed', err)
-      setNotice({ kind: 'error', text: claimErrorMessage(err), pendingHash: txHash })
+      setNotice({ kind: 'error', text: 'Could not claim transaction.', pendingHash: txHash })
     }
   }
 
-  /** Runs one action with the buttons disabled and the old notice cleared. */
   const run = async (action: () => Promise<void>) => {
     setBusy(true)
     setNotice(null)
@@ -87,34 +74,21 @@ export function MarketplacePanel({ onOpenAvatar }: MarketplacePanelProps) {
     }
   }
 
-  const onBuy = (listing: MarketplaceListing) =>
-    run(async () => {
-      let txHash: string
-      try {
-        txHash = await buyClone(listing.avatar_id, listing.price_yocto)
-      } catch (err) {
-        console.error('payment failed', err)
-        setNotice({ kind: 'error', text: 'Payment cancelled or failed. Nothing was charged.' })
-        return
-      }
-      await claim(txHash)
-    })
-
   if (loadError) return <p className="panel-error">{loadError}</p>
   if (!listings) return <p className="panel-muted">Loading…</p>
 
   return (
     <>
-      <h2>Marketplace</h2>
+      <h2>Souk (Marketplace)</h2>
       <p className="panel-muted">
-        Buy a copy of a character. The strategy stays private: you get a new character that runs
-        it, with 10,000 USD of paper money. The creator gets 90% of the price.
+        Clone an autonomous trading agent. The private strategy stays secret: you get your own
+        customized character running it. The creator receives 90% of the clone license fee.
       </p>
-      {account === null && <p className="panel-muted">Connect your wallet to buy.</p>}
+      {account === null && <p className="panel-muted">Connect your wallet to clone characters.</p>}
 
       {notice?.kind === 'ok' && (
         <div className="notice notice-ok">
-          <p>{notice.already ? 'This purchase was already claimed.' : 'Your clone is ready.'}</p>
+          <p>{notice.already ? 'This purchase was already claimed.' : 'Your clone is ready!'}</p>
           <button type="button" onClick={() => onOpenAvatar(notice.avatarId)}>
             Open my clone
           </button>
@@ -151,20 +125,34 @@ export function MarketplacePanel({ onOpenAvatar }: MarketplacePanelProps) {
             <button
               type="button"
               disabled={busy || account === null || account === listing.creator}
-              title={account === listing.creator ? 'You cannot buy your own character' : undefined}
-              onClick={() => void onBuy(listing)}
+              title={account === listing.creator ? 'You cannot clone your own character' : undefined}
+              onClick={() => setSelectedForClone(listing)}
             >
-              {busy ? '…' : `Buy ${formatNear(listing.price_yocto)}`}
+              {listing.price_yocto === '0' || !listing.price_yocto
+                ? 'Clone (Free)'
+                : `Clone (${formatNear(listing.price_yocto)})`}
             </button>
           </li>
         ))}
       </ul>
 
+      {selectedForClone && (
+        <CloneModal
+          listing={selectedForClone}
+          onClose={() => setSelectedForClone(null)}
+          onSuccess={(newId) => {
+            setSelectedForClone(null)
+            onOpenAvatar(newId)
+          }}
+        />
+      )}
+
       {account !== null && (
-        <section>
-          <h3>Paid but no clone?</h3>
-          <p className="panel-muted">Paste the transaction hash of your payment.</p>
-          <div className="claim-form">
+        <details style={{ marginTop: '24px', opacity: 0.8 }}>
+          <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--muted)' }}>
+            Paid but no clone? Paste transaction hash
+          </summary>
+          <div className="claim-form" style={{ marginTop: '8px' }}>
             <input
               value={pastedHash}
               onChange={(event) => setPastedHash(event.target.value)}
@@ -179,16 +167,8 @@ export function MarketplacePanel({ onOpenAvatar }: MarketplacePanelProps) {
               Claim
             </button>
           </div>
-        </section>
+        </details>
       )}
     </>
   )
-}
-
-/** A short text for the user; details stay in the console. */
-function claimErrorMessage(err: unknown): string {
-  if (err instanceof ApiError && err.status === 401) return 'Log in first, then retry.'
-  if (err instanceof ApiError && err.status === 403) return 'This purchase belongs to another account.'
-  if (err instanceof ApiError && err.status === 400) return `Payment sent, but: ${err.message}.`
-  return 'Payment sent, but the clone is not created yet. Retry in a moment: your money is safe on chain.'
 }

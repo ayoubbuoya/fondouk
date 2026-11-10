@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        INSERT INTO avatars\n            (owner, config_id, name, sprite, mode, starting_capital_usd, cash_usd, cloned_from)\n        VALUES ($1, $2, $3, $4, 'sim', $5, $5, $6)\n        RETURNING id\n        ",
+  "query": "\n        INSERT INTO avatars\n            (owner, config_id, name, sprite, mode, starting_capital_usd, cash_usd, cloned_from)\n        VALUES ($1, $2, $3, $4, $5, $6, $6, $7)\n        RETURNING id\n        ",
   "describe": {
     "columns": [
       {
@@ -21,6 +21,7 @@
         "Uuid",
         "Text",
         "Text",
+        "Text",
         "Numeric",
         "Uuid"
       ]
@@ -29,5 +30,5 @@
       false
     ]
   },
-  "hash": "f5871c4a841d3ad095627f304a409ee405107dbe759c8d2b26ae2ba042b8b762"
+  "hash": "3fe642e98f3cbc9e5d01549ee47c1bf83671b677c1a9b448f9fcf636d24b5582"
 }

@@ -602,6 +602,194 @@ button.primary:hover:not(:disabled) {
   font: inherit;
 }
 
+/* ---- clone modal dialog ---- */
+
+.clone-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 12, 24, 0.78);
+  backdrop-filter: blur(2px);
+}
+
+.clone-modal-card {
+  position: relative;
+  width: 440px;
+  max-width: 100%;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  background: var(--panel);
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.55);
+  padding: 22px 24px;
+}
+
+.clone-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 2px 8px;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.clone-modal-close:hover {
+  border-color: var(--text);
+  color: var(--text);
+  background: var(--panel-raised);
+}
+
+.clone-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-right: 30px;
+}
+
+.clone-modal-header h3 {
+  margin: 0 0 4px;
+  font: 600 18px/1.2 var(--font-pixel);
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.clone-form-section {
+  margin-bottom: 14px;
+}
+
+.clone-form-section label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: var(--text);
+}
+
+.clone-form-section input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.clone-sprite-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.clone-sprite-btn {
+  padding: 4px;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-raised);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.clone-sprite-btn:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+.clone-sprite-btn.active {
+  border-color: var(--accent);
+  background: rgba(232, 180, 90, 0.2);
+}
+
+.clone-sprite-btn img {
+  image-rendering: pixelated;
+  display: block;
+}
+
+.clone-pill-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.clone-pill-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.clone-pill-btn:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+.clone-pill-btn.active {
+  border-color: var(--accent);
+  background: var(--panel-raised);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.clone-price-box {
+  margin: 14px 0;
+  padding: 10px 12px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.clone-price-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.clone-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.btn-secondary {
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: transparent;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--text);
+  color: var(--text);
+  background: var(--panel-raised);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 2px solid var(--accent);
+  font-weight: 600;
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
 button.link {
   display: inline-flex;
   align-items: center;

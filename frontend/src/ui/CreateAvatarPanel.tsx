@@ -23,7 +23,7 @@ import {
   validateDetails,
   type CreateAvatarForm,
 } from '../lib/createAvatar'
-import { actionLabel, formatUsd } from '../lib/format'
+import { actionLabel, formatUsd, parseNearToYocto } from '../lib/format'
 import { depositToVault } from '../lib/wallet'
 import { LineChart } from './LineChart'
 
@@ -59,6 +59,8 @@ const EMPTY_FORM: CreateAvatarForm = {
   goal: 'steady_income',
   starting_capital_usd: 10_000,
   mode: 'sim',
+  listed: true,
+  price_yocto: '500000000000000000000000',
 }
 
 /**
@@ -78,8 +80,15 @@ export function CreateAvatarPanel({ onDone }: CreateAvatarPanelProps) {
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<Result | null>(null)
   const [starting, setStarting] = useState(false)
+  const [priceNear, setPriceNear] = useState('0.5')
 
   const update = (changes: Partial<CreateAvatarForm>) => setForm((old) => ({ ...old, ...changes }))
+
+  const handlePriceNearChange = (val: string) => {
+    setPriceNear(val)
+    const yocto = parseNearToYocto(val)
+    update({ price_yocto: yocto ?? undefined })
+  }
 
   const goToStrategy = () => {
     const problem = validateDetails(form)
@@ -269,6 +278,42 @@ export function CreateAvatarPanel({ onDone }: CreateAvatarPanelProps) {
               </select>
             </label>
           )}
+
+          <div
+            style={{
+              marginTop: '0.25rem',
+              padding: '10px 12px',
+              background: 'var(--panel-raised)',
+              borderRadius: '6px',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0 }}>
+              <input
+                type="checkbox"
+                checked={form.listed ?? true}
+                onChange={(event) => update({ listed: event.target.checked })}
+              />
+              <span>Allow others to clone this character in Souk</span>
+            </label>
+            {(form.listed ?? true) && (
+              <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--muted)' }}>Clone price:</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.01"
+                  value={priceNear}
+                  onChange={(event) => handlePriceNearChange(event.target.value)}
+                  style={{ width: '80px', padding: '3px 6px', fontSize: '12px' }}
+                />
+                <span style={{ fontSize: '12px' }}>NEAR</span>
+                <span className="panel-muted" style={{ fontSize: '11px', marginLeft: 'auto' }}>
+                  (you receive 90%)
+                </span>
+              </div>
+            )}
+          </div>
 
           <div className="form-actions">
             <button type="button" onClick={goToStrategy}>

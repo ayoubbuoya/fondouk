@@ -52,6 +52,7 @@ export interface AvatarSummary {
   active: boolean
   cloned_from: string | null
   listed: boolean
+  price_yocto?: string | null
   created_at: string
   /** USD as a decimal string, as stored by the last tick. */
   equity_usd: string
@@ -110,6 +111,8 @@ export interface CreateAvatarRequest {
   /** `sim` (paper ledger) or `real` (vault-deposited). */
   mode: 'sim' | 'real'
   starting_capital_usd: number
+  listed?: boolean
+  price_yocto?: string
 }
 
 /** Answer of `POST /avatars`. */
@@ -228,8 +231,11 @@ export function createAvatar(body: CreateAvatarRequest): Promise<CreatedAvatar> 
   return request('POST', '/avatars', body)
 }
 
-/** Owner only. Used for Start / Pause (`{ active }`). */
-export function updateAvatar(id: string, body: { active: boolean }): Promise<AvatarDetail> {
+/** Owner only. Used for Start / Pause (`{ active }`), listing in Souk (`{ listed, price_yocto }`). */
+export function updateAvatar(
+  id: string,
+  body: { active?: boolean; listed?: boolean; price_yocto?: string },
+): Promise<AvatarDetail> {
   return request('PATCH', `/avatars/${encodeURIComponent(id)}`, body)
 }
 
@@ -237,12 +243,36 @@ export function getListings(): Promise<MarketplaceListing[]> {
   return request('GET', '/marketplace/listings')
 }
 
+export interface ClaimPurchaseRequest {
+  tx_hash: string
+  name?: string
+  sprite?: string
+  starting_capital_usd?: number
+  mode?: AvatarMode
+}
+
 /**
  * Asks the backend to turn a paid purchase into a clone. The backend reads the
  * transaction from the chain itself, so the hash is the only thing it trusts us with.
  */
-export function claimPurchase(txHash: string): Promise<ClaimResult> {
-  return request('POST', '/marketplace/claim', { tx_hash: txHash })
+export function claimPurchase(body: string | ClaimPurchaseRequest): Promise<ClaimResult> {
+  const payload = typeof body === 'string' ? { tx_hash: body } : body
+  return request('POST', '/marketplace/claim', payload)
+}
+
+export interface FreeCloneRequest {
+  avatar_id: string
+  name?: string
+  sprite?: string
+  starting_capital_usd?: number
+  mode?: AvatarMode
+}
+
+/**
+ * Clones a free or demo avatar without requiring an on-chain transaction.
+ */
+export function cloneFree(body: FreeCloneRequest): Promise<ClaimResult> {
+  return request('POST', '/marketplace/clone_free', body)
 }
 
 export function createChallenge(): Promise<Challenge> {

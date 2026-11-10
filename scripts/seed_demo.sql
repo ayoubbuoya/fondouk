@@ -55,17 +55,17 @@ ON CONFLICT DO NOTHING;
 
 -- cash_usd = starting capital: sim characters start in cash and invest with
 -- REBALANCE (D27). Capitals follow Q-E ($1k / $10k / $100k).
-INSERT INTO avatars (id, owner, config_id, name, sprite, mode, starting_capital_usd, cash_usd) VALUES
-    ('a0000000-0000-4000-8000-000000000001', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000001', 'Amira',   'princess',   'sim', 10000,  10000),
-    ('a0000000-0000-4000-8000-000000000002', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000002', 'Old Habib', 'old_man',  'sim', 100000, 100000),
-    ('a0000000-0000-4000-8000-000000000003', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000003', 'Karim',   'boy',        'sim', 10000,  10000),
-    ('a0000000-0000-4000-8000-000000000004', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000004', 'Salma',   'hunter',     'sim', 10000,  10000),
-    ('a0000000-0000-4000-8000-000000000005', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000005', 'Brother Yunus', 'monk', 'sim', 1000,   1000),
-    ('a0000000-0000-4000-8000-000000000006', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000006', 'Lady Zaynab', 'noble',  'sim', 100000, 100000),
-    ('a0000000-0000-4000-8000-000000000007', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000007', 'Tarek',   'samurai',    'sim', 10000,  10000),
-    ('a0000000-0000-4000-8000-000000000008', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000008', 'Shadow Nour', 'ninja_blue', 'sim', 1000, 1000),
-    ('a0000000-0000-4000-8000-000000000009', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000009', 'Mehdi',   'boy',        'sim', 10000,  10000),
-    ('a0000000-0000-4000-8000-000000000010', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000010', 'Ines',    'princess',   'sim', 10000,  10000)
+INSERT INTO avatars (id, owner, config_id, name, sprite, mode, starting_capital_usd, cash_usd, listed, price_yocto) VALUES
+    ('a0000000-0000-4000-8000-000000000001', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000001', 'Amira',   'princess',   'sim', 10000,  10000,  true, 500000000000000000000000),
+    ('a0000000-0000-4000-8000-000000000002', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000002', 'Old Habib', 'old_man',  'sim', 100000, 100000, true, 1000000000000000000000000),
+    ('a0000000-0000-4000-8000-000000000003', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000003', 'Karim',   'boy',        'sim', 10000,  10000,  true, 250000000000000000000000),
+    ('a0000000-0000-4000-8000-000000000004', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000004', 'Salma',   'hunter',     'sim', 10000,  10000,  true, 500000000000000000000000),
+    ('a0000000-0000-4000-8000-000000000005', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000005', 'Brother Yunus', 'monk', 'sim', 1000,   1000,   true, 100000000000000000000000),
+    ('a0000000-0000-4000-8000-000000000006', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000006', 'Lady Zaynab', 'noble',  'sim', 100000, 100000, true, 1000000000000000000000000),
+    ('a0000000-0000-4000-8000-000000000007', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000007', 'Tarek',   'samurai',    'sim', 10000,  10000,  true, 500000000000000000000000),
+    ('a0000000-0000-4000-8000-000000000008', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000008', 'Shadow Nour', 'ninja_blue', 'sim', 1000, 1000, true, 500000000000000000000000),
+    ('a0000000-0000-4000-8000-000000000009', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000009', 'Mehdi',   'boy',        'sim', 10000,  10000,  true, 250000000000000000000000),
+    ('a0000000-0000-4000-8000-000000000010', 'demo.fondouk.testnet', 'd0000000-0000-4000-8000-000000000010', 'Ines',    'princess',   'sim', 10000,  10000,  true, 100000000000000000000000)
 ON CONFLICT DO NOTHING;
 
 COMMIT;

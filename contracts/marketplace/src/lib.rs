@@ -111,40 +111,51 @@ impl Marketplace {
         listing.active = false;
     }
 
-    /// Buy a clone. The deposit must equal the price exactly. The platform gets
+    /// Buy a clone. The deposit must equal the price. If the listing is in the
+    /// contract map, its price is enforced. If not, the caller provides the
+    /// creator account and attaches the payment directly. The platform gets
     /// `price * fee_bps / 10000`; the creator gets the rest, so any rounding
     /// remainder goes to the creator (nothing is lost).
     #[payable]
-    pub fn buy_clone(&mut self, avatar_id: String) {
-        let listing = self
-            .listings
-            .get(&avatar_id)
-            .unwrap_or_else(|| env::panic_str("Listing not found"))
-            .clone();
-        require!(listing.active, "Listing is not active");
-        // Approved by Ayoub (6 Nov): a creator cannot buy their own character.
-        require!(
-            env::predecessor_account_id() != listing.creator,
-            "Creator cannot buy their own listing"
-        );
-        require!(
-            env::attached_deposit() == listing.price,
-            "Attached deposit must equal the price"
-        );
+    pub fn buy_clone(&mut self, avatar_id: String, creator: Option<AccountId>) {
+        let (creator_account, price) = match self.listings.get(&avatar_id) {
+            Some(listing) => {
+                require!(listing.active, "Listing is not active");
+                require!(
+                    env::predecessor_account_id() != listing.creator,
+                    "Creator cannot buy their own listing"
+                );
+                require!(
+                    env::attached_deposit() == listing.price,
+                    "Attached deposit must equal the price"
+                );
+                (listing.creator.clone(), listing.price)
+            }
+            None => {
+                let c = creator.unwrap_or_else(|| env::panic_str("Listing not found"));
+                require!(
+                    env::predecessor_account_id() != c,
+                    "Creator cannot buy their own listing"
+                );
+                let deposit = env::attached_deposit();
+                require!(!deposit.is_zero(), "Deposit must be greater than zero");
+                (c, deposit)
+            }
+        };
 
-        let (creator_share, platform_fee) = split_price(listing.price, self.platform_fee_bps);
+        let (creator_share, platform_fee) = split_price(price, self.platform_fee_bps);
 
         MarketplaceEvent::ClonePurchased {
             avatar_id,
             buyer: env::predecessor_account_id(),
-            creator: listing.creator.clone(),
-            price: listing.price,
+            creator: creator_account.clone(),
+            price,
         }
         .emit();
 
         // Two independent transfers, not returned: NEAR rejects a joined
         // promise (`a.and(b)`) as a method result ("Returning joint promise").
-        let _ = Promise::new(listing.creator).transfer(creator_share);
+        let _ = Promise::new(creator_account).transfer(creator_share);
         let _ = Promise::new(self.platform_account.clone()).transfer(platform_fee);
     }
 
@@ -230,7 +241,7 @@ mod tests {
     fn buy_pays_creator_and_platform_and_emits_event() {
         let mut m = listed(1_000);
         ctx("buyer.testnet", 1_000);
-        m.buy_clone("avatar1".into());
+        m.buy_clone("avatar1".into(), None);
         assert_eq!(
             transfers(),
             vec![("creator.testnet".to_string(), 900), ("platform.testnet".to_string(), 100)]
@@ -244,10 +255,24 @@ mod tests {
     }
 
     #[test]
+    fn buy_unlisted_with_creator_pays_and_emits_event() {
+        let mut m = Marketplace::new(acc("owner.testnet"), acc("platform.testnet"), 1000);
+        ctx("buyer.testnet", 2_000);
+        m.buy_clone("unlisted_avatar".into(), Some(acc("creator.testnet")));
+        assert_eq!(
+            transfers(),
+            vec![("creator.testnet".to_string(), 1800), ("platform.testnet".to_string(), 200)]
+        );
+        let logs = get_logs();
+        assert_eq!(logs.len(), 1);
+        assert!(logs[0].contains("unlisted_avatar"));
+    }
+
+    #[test]
     fn indivisible_price_gives_remainder_to_creator() {
         let mut m = listed(19);
         ctx("buyer.testnet", 19);
-        m.buy_clone("avatar1".into());
+        m.buy_clone("avatar1".into(), None);
         assert_eq!(
             transfers(),
             vec![("creator.testnet".to_string(), 18), ("platform.testnet".to_string(), 1)]
@@ -259,7 +284,7 @@ mod tests {
     fn wrong_deposit_fails() {
         let mut m = listed(1_000);
         ctx("buyer.testnet", 999);
-        m.buy_clone("avatar1".into());
+        m.buy_clone("avatar1".into(), None);
     }
 
     #[test]
@@ -267,7 +292,7 @@ mod tests {
     fn unlisted_avatar_fails() {
         let mut m = listed(1_000);
         ctx("buyer.testnet", 1_000);
-        m.buy_clone("other".into());
+        m.buy_clone("other".into(), None);
     }
 
     #[test]
@@ -277,7 +302,7 @@ mod tests {
         ctx("creator.testnet", 0);
         m.unlist("avatar1".into());
         ctx("buyer.testnet", 1_000);
-        m.buy_clone("avatar1".into());
+        m.buy_clone("avatar1".into(), None);
     }
 
     #[test]
@@ -285,7 +310,7 @@ mod tests {
     fn creator_cannot_buy_own_listing() {
         let mut m = listed(1_000);
         ctx("creator.testnet", 1_000);
-        m.buy_clone("avatar1".into());
+        m.buy_clone("avatar1".into(), None);
     }
 
     #[test]

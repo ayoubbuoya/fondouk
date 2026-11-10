@@ -95,7 +95,11 @@ const FT_TRANSFER_GAS = '50000000000000'
  * Resolves with the transaction hash. Rejects when there is no connected
  * wallet, or the user closes the wallet popup.
  */
-export async function buyClone(avatarId: string, priceYocto: string): Promise<string> {
+export async function buyClone(
+  avatarId: string,
+  priceYocto: string,
+  creator?: string,
+): Promise<string> {
   const connected = await getConnector()
     .getConnectedWallet()
     .catch(() => null)
@@ -109,7 +113,7 @@ export async function buyClone(avatarId: string, priceYocto: string): Promise<st
         type: 'FunctionCall',
         params: {
           methodName: 'buy_clone',
-          args: { avatar_id: avatarId },
+          args: { avatar_id: avatarId, creator: creator ?? null },
           gas: BUY_CLONE_GAS,
           deposit: priceYocto,
         },

@@ -8,6 +8,7 @@ import {
   formatCompactUsd,
   formatDrawdown,
   formatNear,
+  parseNearToYocto,
   formatPercent,
   formatTimeAgo,
   formatUsd,
@@ -129,6 +130,28 @@ describe('formatNear', () => {
     expect(formatNear('')).toBe('–')
     expect(formatNear('1.5')).toBe('–')
     expect(formatNear('-3')).toBe('–')
+  })
+})
+
+describe('parseNearToYocto', () => {
+  it('converts whole and decimal NEAR to yoctoNEAR', () => {
+    expect(parseNearToYocto('1')).toBe('1000000000000000000000000')
+    expect(parseNearToYocto('0.5')).toBe('500000000000000000000000')
+    expect(parseNearToYocto('0.1')).toBe('100000000000000000000000')
+    expect(parseNearToYocto('2.5')).toBe('2500000000000000000000000')
+    expect(parseNearToYocto(0.5)).toBe('500000000000000000000000')
+  })
+
+  it('handles 0', () => {
+    expect(parseNearToYocto('0')).toBe('0')
+    expect(parseNearToYocto('0.0')).toBe('0')
+  })
+
+  it('returns null on invalid input', () => {
+    expect(parseNearToYocto('')).toBeNull()
+    expect(parseNearToYocto('abc')).toBeNull()
+    expect(parseNearToYocto('-1')).toBeNull()
+    expect(parseNearToYocto('1.2.3')).toBeNull()
   })
 })
 

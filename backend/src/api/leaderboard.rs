@@ -383,6 +383,8 @@ mod tests {
                 mode: "sim".to_string(),
                 starting_capital_usd: d(10000),
                 active: true,
+                listed: false,
+                price_yocto: None,
             },
         )
         .await

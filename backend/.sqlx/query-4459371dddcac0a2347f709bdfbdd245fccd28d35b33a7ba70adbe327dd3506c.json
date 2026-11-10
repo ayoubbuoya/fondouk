@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,\n               a.active, a.cloned_from, a.listed, a.created_at,\n               c.id AS config_id, c.persona, c.risk, c.goal,\n               c.created_by AS config_created_by,\n               a.deposit_tx_hash, a.deposit_token\n        FROM avatars a\n        JOIN avatar_configs c ON c.id = a.config_id\n        WHERE a.active AND a.mode = $1\n        ORDER BY a.created_at, a.id\n        ",
+  "query": "\n        SELECT a.id, a.owner, a.name, a.sprite, a.mode, a.starting_capital_usd, a.cash_usd,\n               a.active, a.cloned_from, a.listed, a.price_yocto, a.created_at,\n               c.id AS config_id, c.persona, c.risk, c.goal,\n               c.created_by AS config_created_by,\n               a.deposit_tx_hash, a.deposit_token\n        FROM avatars a\n        JOIN avatar_configs c ON c.id = a.config_id\n        WHERE a.active AND a.mode = $1\n        ORDER BY a.created_at, a.id\n        ",
   "describe": {
     "columns": [
       {
@@ -115,6 +115,17 @@
       },
       {
         "ordinal": 10,
+        "name": "price_yocto",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "price_yocto"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "config_id",
         "type_info": "Uuid",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "persona",
         "type_info": "Text",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "risk",
         "type_info": "Text",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "goal",
         "type_info": "Text",
         "origin": {
@@ -169,7 +180,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "config_created_by",
         "type_info": "Text",
         "origin": {
@@ -180,7 +191,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "deposit_tx_hash",
         "type_info": "Text",
         "origin": {
@@ -191,7 +202,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "deposit_token",
         "type_info": "Text",
         "origin": {
@@ -218,6 +229,7 @@
       false,
       true,
       false,
+      true,
       false,
       false,
       false,
@@ -228,5 +240,5 @@
       true
     ]
   },
-  "hash": "aa6ff99a94d4dca0a9f89c2d6ddb774daf9863e087625ea1c4c42f099ded9a90"
+  "hash": "4459371dddcac0a2347f709bdfbdd245fccd28d35b33a7ba70adbe327dd3506c"
 }

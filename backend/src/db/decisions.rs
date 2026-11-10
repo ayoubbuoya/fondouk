@@ -187,6 +187,8 @@ mod tests {
                 mode: "sim".to_string(),
                 starting_capital_usd: Decimal::from(1000),
                 active: true,
+                listed: false,
+                price_yocto: None,
             },
         )
         .await

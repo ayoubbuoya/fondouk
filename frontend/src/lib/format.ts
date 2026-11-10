@@ -66,6 +66,20 @@ export function formatNear(yocto: string): string {
 }
 
 /**
+ * Converts a human-readable NEAR amount (e.g. "0.5" or "1") into yoctoNEAR (1 NEAR = 10^24 yoctoNEAR).
+ * Returns null if the input is not a valid non-negative decimal string or has more than 24 decimals.
+ */
+export function parseNearToYocto(near: string | number): string | null {
+  const s = String(near).trim()
+  if (!s || !/^\d+(\.\d+)?$/.test(s)) return null
+  const [whole, fraction = ''] = s.split('.')
+  if (fraction.length > 24) return null
+  const paddedFraction = fraction.padEnd(24, '0')
+  const yocto = BigInt(whole) * YOCTO_PER_NEAR + BigInt(paddedFraction)
+  return yocto.toString()
+}
+
+/**
  * A short, public label for one applied action (SPEC §5), e.g.
  * `"MOVE 40% rhea-lend-usdc → rhea-dex-stable4"`. The action's own `reason`
  * field is left out on purpose: the panel shows `reason_public` instead.

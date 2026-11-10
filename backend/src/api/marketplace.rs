@@ -28,10 +28,11 @@ use std::str::FromStr;
 use axum::{Json, extract::State, http::StatusCode};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use uuid::Uuid;
 
 use super::auth::AuthUser;
+use super::avatars::{REAL_STARTING_CAPITALS, SPRITES, STARTING_CAPITALS};
 use super::near_rpc;
 use super::{ApiError, AppState};
 use crate::db::avatars::{self, NewClone};
@@ -42,8 +43,6 @@ const CLONE_STARTING_CAPITAL_USD: u64 = 10_000;
 /// Longest name the database accepts (`avatars.name` CHECK).
 const MAX_NAME_CHARS: usize = 32;
 const CLONE_SUFFIX: &str = " (clone)";
-/// How many listings one request asks the contract for.
-const LISTINGS_PAGE_SIZE: u32 = 50;
 /// The NEP-297 `standard` and `event` our contract emits.
 const EVENT_STANDARD: &str = "fondouk_marketplace";
 const EVENT_NAME: &str = "clone_purchased";
@@ -67,10 +66,25 @@ pub struct ListingDto {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClaimRequest {
-    tx_hash: String,
+    pub tx_hash: String,
+    pub name: Option<String>,
+    pub sprite: Option<String>,
+    pub starting_capital_usd: Option<u64>,
+    pub mode: Option<String>,
 }
 
-/// Answer of `POST /marketplace/claim`.
+/// Body of `POST /marketplace/clone_free`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FreeCloneRequest {
+    pub avatar_id: Uuid,
+    pub name: Option<String>,
+    pub sprite: Option<String>,
+    pub starting_capital_usd: Option<u64>,
+    pub mode: Option<String>,
+}
+
+/// Answer of `POST /marketplace/claim` or `POST /marketplace/clone_free`.
 #[derive(Debug, Serialize)]
 pub struct ClaimDto {
     /// The buyer's new character.
@@ -88,52 +102,39 @@ struct Purchase {
     price_yocto: Decimal,
 }
 
-/// A listing as the contract returns it (`get_listings`). Extra fields are ignored.
-#[derive(Debug, Deserialize)]
-struct ChainListing {
-    creator: String,
-    price: String,
-}
-
 /// `GET /marketplace/listings`: what is for sale right now.
 ///
-/// The contract is the source of truth for price and creator. A listing whose
-/// avatar is unknown to our database, or is itself a clone, is skipped.
-/// One query per listing (at most [`LISTINGS_PAGE_SIZE`]): fine at this scale.
+/// Reads listed avatars directly from the database (original characters only,
+/// clones cannot be listed, F11.5).
 pub async fn list_listings(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ListingDto>>, ApiError> {
-    let answer = near_rpc::view_function(
-        &state.http,
-        &state.near_rpc_url,
-        &state.marketplace_contract_id,
-        "get_listings",
-        &json!({ "from": 0, "limit": LISTINGS_PAGE_SIZE }),
+    let rows = sqlx::query!(
+        r#"
+        SELECT a.id, a.name, a.sprite, a.owner, a.price_yocto,
+               c.risk, c.goal
+        FROM avatars a
+        JOIN avatar_configs c ON c.id = a.config_id
+        WHERE a.listed = true AND a.cloned_from IS NULL
+        ORDER BY a.created_at ASC
+        "#
     )
+    .fetch_all(&state.db)
     .await?;
-    let on_chain: Vec<(String, ChainListing)> = serde_json::from_value(answer)?;
 
-    let mut listings = Vec::new();
-    for (avatar_id, listing) in on_chain {
-        let Ok(avatar_id) = Uuid::parse_str(&avatar_id) else {
-            continue;
-        };
-        let Some(avatar) = avatars::get_avatar_with_config(&state.db, avatar_id).await? else {
-            continue;
-        };
-        if avatar.cloned_from.is_some() {
-            continue; // F11.5: clones are never sold
-        }
-        listings.push(ListingDto {
-            avatar_id,
-            name: avatar.name,
-            sprite: avatar.sprite,
-            risk: avatar.risk,
-            goal: avatar.goal,
-            creator: listing.creator,
-            price_yocto: listing.price,
-        });
-    }
+    let listings = rows
+        .into_iter()
+        .map(|row| ListingDto {
+            avatar_id: row.id,
+            name: row.name,
+            sprite: row.sprite,
+            risk: row.risk,
+            goal: row.goal,
+            creator: row.owner,
+            price_yocto: row.price_yocto.unwrap_or_default().to_string(),
+        })
+        .collect();
+
     Ok(Json(listings))
 }
 
@@ -168,7 +169,16 @@ pub async fn claim_purchase(
         return Err(ApiError::Forbidden);
     }
 
-    let (avatar_id, created) = create_clone(&state, tx_hash, &purchase).await?;
+    let (avatar_id, created) = create_clone(
+        &state,
+        tx_hash,
+        &purchase,
+        request.name.as_deref(),
+        request.sprite.as_deref(),
+        request.starting_capital_usd,
+        request.mode.as_deref(),
+    )
+    .await?;
     if !created {
         return Ok(already_claimed(avatar_id));
     }
@@ -177,6 +187,77 @@ pub async fn claim_purchase(
         StatusCode::CREATED,
         Json(ClaimDto {
             avatar_id,
+            already_claimed: false,
+        }),
+    ))
+}
+
+/// `POST /marketplace/clone_free`: clones an avatar whose price is zero or unlisted.
+pub async fn clone_free(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(request): Json<FreeCloneRequest>,
+) -> Result<(StatusCode, Json<ClaimDto>), ApiError> {
+    let source = avatars::get_avatar_with_config(&state.db, request.avatar_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("the character does not exist".to_string()))?;
+    if source.cloned_from.is_some() {
+        return Err(ApiError::BadRequest("a clone cannot be cloned".to_string()));
+    }
+    if !source.listed {
+        return Err(ApiError::BadRequest(
+            "this character is not listed for cloning".to_string(),
+        ));
+    }
+    if source.price_yocto.is_some_and(|p| p > Decimal::ZERO) {
+        return Err(ApiError::BadRequest(
+            "this character requires payment".to_string(),
+        ));
+    }
+
+    let name = match request.name.map(|n| n.trim().to_string()) {
+        Some(n) if !n.is_empty() && n.chars().count() <= MAX_NAME_CHARS => n,
+        _ => clone_name(&source.name),
+    };
+    let sprite = match request.sprite {
+        Some(s) if SPRITES.contains(&s.as_str()) => s,
+        _ => source.sprite.clone(),
+    };
+    let mode = match request.mode.as_deref() {
+        Some("real") => "real".to_string(),
+        _ => "sim".to_string(),
+    };
+    let starting_capital_usd = match request.starting_capital_usd {
+        Some(c)
+            if (mode == "sim" && STARTING_CAPITALS.contains(&c))
+                || (mode == "real" && REAL_STARTING_CAPITALS.contains(&c)) =>
+        {
+            Decimal::from(c)
+        }
+        _ => Decimal::from(CLONE_STARTING_CAPITAL_USD),
+    };
+
+    let mut tx = state.db.begin().await?;
+    let clone_id = avatars::insert_clone(
+        &mut *tx,
+        &NewClone {
+            owner: user.account_id.clone(),
+            source_id: source.id,
+            config_id: source.config_id,
+            name,
+            sprite,
+            mode,
+            starting_capital_usd,
+        },
+    )
+    .await?;
+    tx.commit().await?;
+
+    tracing::info!(clone = %clone_id, buyer = %user.account_id, "free clone created");
+    Ok((
+        StatusCode::CREATED,
+        Json(ClaimDto {
+            avatar_id: clone_id,
             already_claimed: false,
         }),
     ))
@@ -199,6 +280,10 @@ async fn create_clone(
     state: &AppState,
     tx_hash: &str,
     purchase: &Purchase,
+    custom_name: Option<&str>,
+    custom_sprite: Option<&str>,
+    custom_capital: Option<u64>,
+    custom_mode: Option<&str>,
 ) -> Result<(Uuid, bool), ApiError> {
     let source = avatars::get_avatar_with_config(&state.db, purchase.avatar_id)
         .await?
@@ -209,6 +294,28 @@ async fn create_clone(
         return Err(ApiError::BadRequest("a clone cannot be bought".to_string()));
     }
 
+    let name = match custom_name.map(|n| n.trim().to_string()) {
+        Some(n) if !n.is_empty() && n.chars().count() <= MAX_NAME_CHARS => n,
+        _ => clone_name(&source.name),
+    };
+    let sprite = match custom_sprite {
+        Some(s) if SPRITES.contains(&s) => s.to_string(),
+        _ => source.sprite.clone(),
+    };
+    let mode = match custom_mode {
+        Some("real") => "real".to_string(),
+        _ => "sim".to_string(),
+    };
+    let starting_capital_usd = match custom_capital {
+        Some(c)
+            if (mode == "sim" && STARTING_CAPITALS.contains(&c))
+                || (mode == "real" && REAL_STARTING_CAPITALS.contains(&c)) =>
+        {
+            Decimal::from(c)
+        }
+        _ => Decimal::from(CLONE_STARTING_CAPITAL_USD),
+    };
+
     let mut tx = state.db.begin().await?;
     let clone_id = avatars::insert_clone(
         &mut *tx,
@@ -216,9 +323,10 @@ async fn create_clone(
             owner: purchase.buyer.clone(),
             source_id: source.id,
             config_id: source.config_id,
-            name: clone_name(&source.name),
-            sprite: source.sprite.clone(),
-            starting_capital_usd: Decimal::from(CLONE_STARTING_CAPITAL_USD),
+            name,
+            sprite,
+            mode,
+            starting_capital_usd,
         },
     )
     .await?;
@@ -343,6 +451,7 @@ fn purchase_from_data(data: &Value) -> Result<Purchase, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use crate::api::auth::tests::{login_cookie, state_with_rpc};
     use crate::api::near_rpc::tests::{fake_rpc, full_access_answer};
     use crate::api::router;
@@ -544,6 +653,8 @@ mod tests {
                 mode: "sim".to_string(),
                 starting_capital_usd: Decimal::from(10_000),
                 active: true,
+                listed: true,
+                price_yocto: Some(Decimal::from_str(PRICE).unwrap()),
             },
         )
         .await
@@ -656,8 +767,14 @@ mod tests {
         let purchase = parse_purchase(&tx_result(source, "bob.testnet"), CONTRACT).unwrap();
 
         // Two requests that both passed the "already claimed?" check.
-        let (first, first_created) = create_clone(&state, TX_HASH, &purchase).await.unwrap();
-        let (second, second_created) = create_clone(&state, TX_HASH, &purchase).await.unwrap();
+        let (first, first_created) =
+            create_clone(&state, TX_HASH, &purchase, None, None, None, None)
+                .await
+                .unwrap();
+        let (second, second_created) =
+            create_clone(&state, TX_HASH, &purchase, None, None, None, None)
+                .await
+                .unwrap();
 
         assert!(first_created);
         assert!(!second_created);
@@ -729,6 +846,7 @@ mod tests {
                 config_id,
                 name: "Copy".to_string(),
                 sprite: "boy".to_string(),
+                mode: "sim".to_string(),
                 starting_capital_usd: Decimal::from(10_000),
             },
         )
@@ -745,20 +863,10 @@ mod tests {
     #[sqlx::test]
     async fn listings_show_public_data_and_skip_unknown_characters(pool: PgPool) {
         let (source, _) = seed_source(&pool).await;
-        let on_chain = json!([
-            [source.to_string(), { "creator": "creator.testnet", "price": PRICE, "active": true }],
-            [Uuid::from_u128(0xABCD).to_string(), { "creator": "x.testnet", "price": PRICE, "active": true }],
-            ["not-a-uuid", { "creator": "x.testnet", "price": PRICE, "active": true }],
-        ]);
-        let bytes: Vec<u8> = on_chain.to_string().into_bytes();
-        let state = state_with_rpc(
-            pool,
-            rpc_answer(json!({ "result": bytes, "logs": [], "block_height": 1 })),
-        )
-        .await;
+        let login_state = state_with_rpc(pool, full_access_answer()).await;
 
         let (status, _, body) = send(
-            router(state),
+            router(login_state),
             request("GET", "/marketplace/listings", None, None),
         )
         .await;
@@ -773,5 +881,86 @@ mod tests {
         assert_eq!(listings[0]["creator"], "creator.testnet");
         assert_eq!(listings[0]["price_yocto"], PRICE);
         assert!(!String::from_utf8_lossy(&body).contains("Secret plan"));
+    }
+
+    #[sqlx::test]
+    async fn a_claim_with_custom_name_sprite_and_capital_is_honored(pool: PgPool) {
+        let (source, _) = seed_source(&pool).await;
+        let (state, bob) = state_and_cookie(
+            pool.clone(),
+            "bob.testnet",
+            tx_result(source, "bob.testnet"),
+        )
+        .await;
+
+        let (status, _, body) = send(
+            router(state),
+            request(
+                "POST",
+                "/marketplace/claim",
+                Some(&bob),
+                Some(json!({
+                    "tx_hash": TX_HASH,
+                    "name": "Custom Clone",
+                    "sprite": "princess",
+                    "starting_capital_usd": 100000,
+                    "mode": "sim"
+                })),
+            ),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+        let res = body_json(&body);
+        let clone_id: Uuid = res["avatar_id"].as_str().unwrap().parse().unwrap();
+        let clone = avatars::get_avatar_with_config(&pool, clone_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(clone.name, "Custom Clone");
+        assert_eq!(clone.sprite, "princess");
+        assert_eq!(clone.starting_capital_usd, Decimal::from(100000));
+        assert_eq!(clone.cash_usd, Decimal::from(100000));
+    }
+
+    #[sqlx::test]
+    async fn free_clone_creates_character_without_tx_hash(pool: PgPool) {
+        let (source, config_id) = seed_source(&pool).await;
+        // Set price_yocto = None to make it free
+        sqlx::query!("UPDATE avatars SET price_yocto = NULL WHERE id = $1", source)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let login_state = state_with_rpc(pool.clone(), full_access_answer()).await;
+        let cookie = login_cookie(&login_state, "bob.testnet").await;
+
+        let (status, _, body) = send(
+            router(login_state),
+            request(
+                "POST",
+                "/marketplace/clone_free",
+                Some(&cookie),
+                Some(json!({
+                    "avatar_id": source.to_string(),
+                    "name": "Freebie",
+                    "sprite": "hunter",
+                    "starting_capital_usd": 10000,
+                    "mode": "sim"
+                })),
+            ),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+        let res = body_json(&body);
+        let clone_id: Uuid = res["avatar_id"].as_str().unwrap().parse().unwrap();
+        let clone = avatars::get_avatar_with_config(&pool, clone_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(clone.name, "Freebie");
+        assert_eq!(clone.sprite, "hunter");
+        assert_eq!(clone.config_id, config_id);
     }
 }

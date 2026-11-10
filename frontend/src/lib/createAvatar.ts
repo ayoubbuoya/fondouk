@@ -37,6 +37,11 @@ export function validateDetails(form: CreateAvatarForm): string | null {
       return 'Pick a starting capital.'
     }
   }
+  if (form.listed && form.price_yocto !== undefined) {
+    if (!/^\d+$/.test(form.price_yocto) || BigInt(form.price_yocto) <= 0n) {
+      return 'Enter a clone price greater than 0 NEAR.'
+    }
+  }
   return null
 }
 
@@ -51,7 +56,13 @@ export function validateCreateForm(form: CreateAvatarForm): string | null {
   return null
 }
 
-/** The request body: the trimmed name. */
+/** The request body: the trimmed name and listed defaults. */
 export function toCreateRequest(form: CreateAvatarForm): CreateAvatarRequest {
-  return { ...form, name: form.name.trim() }
+  const isListed = form.listed ?? true
+  return {
+    ...form,
+    name: form.name.trim(),
+    listed: isListed,
+    price_yocto: isListed ? (form.price_yocto ?? '500000000000000000000000') : undefined,
+  }
 }

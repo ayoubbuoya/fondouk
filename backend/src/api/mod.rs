@@ -87,6 +87,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/marketplace/listings", get(marketplace::list_listings))
         .route("/marketplace/claim", post(marketplace::claim_purchase))
+        .route("/marketplace/clone_free", post(marketplace::clone_free))
         .route("/leaderboard", get(leaderboard::get_leaderboard))
         .route("/arena/feed", get(arena::get_feed))
         .route("/demo/shock", post(demo::market_shock))

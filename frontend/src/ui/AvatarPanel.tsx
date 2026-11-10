@@ -11,14 +11,17 @@ import {
   type Decision,
   type EquityPoint,
 } from '../lib/api'
-import { actionLabel, allocationShares, formatUsd } from '../lib/format'
+import { actionLabel, allocationShares, formatNear, formatUsd, parseNearToYocto } from '../lib/format'
 import { currentAccount, depositToVault, withdrawFromVault } from '../lib/wallet'
+import { CloneModal } from './CloneModal'
 import { LineChart } from './LineChart'
 
 interface AvatarPanelProps {
   avatarId: string
   /** Changes when a live `decision` arrives for this character: reload. */
   refreshKey: number
+  /** Called after a clone is created from this avatar. */
+  onOpenAvatar?: (id: string) => void
 }
 
 interface AvatarData {
@@ -49,7 +52,7 @@ const GOAL_LABELS: Record<AvatarDetail['goal'], string> = {
  * The owner gets a Start / Pause button (`PATCH {active}`, D63): a new
  * character is created paused.
  */
-export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
+export function AvatarPanel({ avatarId, refreshKey, onOpenAvatar }: AvatarPanelProps) {
   const [data, setData] = useState<AvatarData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [toggling, setToggling] = useState(false)
@@ -58,6 +61,10 @@ export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
   const [withdrawStatus, setWithdrawStatus] = useState<string | null>(null)
   const [depositing, setDepositing] = useState(false)
   const [depositStatus, setDepositStatus] = useState<string | null>(null)
+  const [showCloneModal, setShowCloneModal] = useState(false)
+  const [updatingListing, setUpdatingListing] = useState(false)
+  const [listingError, setListingError] = useState<string | null>(null)
+  const [editPriceNear, setEditPriceNear] = useState('0.5')
 
   useEffect(() => {
     let cancelled = false
@@ -72,6 +79,10 @@ export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
       if (!cancelled) {
         setData({ avatar, decisions, equity, viewer })
         setError(null)
+        if (avatar.price_yocto) {
+          const formatted = formatNear(avatar.price_yocto).replace(' NEAR', '')
+          if (formatted !== '–') setEditPriceNear(formatted)
+        }
       }
     }
     load().catch((err) => {
@@ -137,6 +148,49 @@ export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
       setWithdrawStatus('Withdraw failed or cancelled.')
     } finally {
       setWithdrawing(false)
+    }
+  }
+
+  const handleToggleListing = async (nextListed: boolean) => {
+    setUpdatingListing(true)
+    setListingError(null)
+    try {
+      let priceYocto: string | undefined
+      if (nextListed) {
+        priceYocto = parseNearToYocto(editPriceNear) ?? '500000000000000000000000'
+      }
+      const updated = await updateAvatar(avatar.id, {
+        listed: nextListed,
+        price_yocto: priceYocto,
+      })
+      setData({ ...data, avatar: updated })
+    } catch (err) {
+      console.error('updating listing failed', err)
+      setListingError('Could not update marketplace listing.')
+    } finally {
+      setUpdatingListing(false)
+    }
+  }
+
+  const handleSavePrice = async () => {
+    const yocto = parseNearToYocto(editPriceNear)
+    if (!yocto || BigInt(yocto) <= 0n) {
+      setListingError('Enter a valid price greater than 0 NEAR.')
+      return
+    }
+    setUpdatingListing(true)
+    setListingError(null)
+    try {
+      const updated = await updateAvatar(avatar.id, {
+        listed: true,
+        price_yocto: yocto,
+      })
+      setData({ ...data, avatar: updated })
+    } catch (err) {
+      console.error('saving price failed', err)
+      setListingError('Could not update price.')
+    } finally {
+      setUpdatingListing(false)
     }
   }
 
@@ -219,6 +273,96 @@ export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
         </div>
       )}
 
+      {!isOwner && avatar.listed && (
+        <div style={{ marginTop: '12px', marginBottom: '8px' }}>
+          <button
+            type="button"
+            className="btn-primary"
+            style={{ width: '100%', padding: '8px 14px', fontSize: '13px' }}
+            disabled={viewer === null}
+            title={viewer === null ? 'Connect wallet to clone this character' : undefined}
+            onClick={() => setShowCloneModal(true)}
+          >
+            {avatar.price_yocto === '0' || !avatar.price_yocto
+              ? 'Clone Strategy (Free)'
+              : `Clone Strategy (${formatNear(avatar.price_yocto)})`}
+          </button>
+          {viewer === null && (
+            <p className="panel-muted" style={{ fontSize: '11px', marginTop: '4px', textAlign: 'center' }}>
+              Connect your wallet to clone this character
+            </p>
+          )}
+        </div>
+      )}
+
+      {isOwner && !avatar.cloned_from && (
+        <div
+          style={{
+            marginTop: '12px',
+            marginBottom: '8px',
+            padding: '10px 12px',
+            background: 'var(--panel-raised)',
+            borderRadius: '6px',
+            border: '1px solid var(--border)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <strong style={{ fontSize: '13px' }}>Souk Marketplace</strong>
+            <span
+              className="badge"
+              style={{
+                background: avatar.listed ? 'var(--good)' : 'var(--border)',
+                color: avatar.listed ? '#0d381e' : 'var(--muted)',
+              }}
+            >
+              {avatar.listed ? 'Listed' : 'Unlisted'}
+            </span>
+          </div>
+          <p className="panel-muted" style={{ fontSize: '12px', margin: '4px 0 8px' }}>
+            {avatar.listed
+              ? 'Other players can clone this character and run your strategy.'
+              : 'List this character so others can clone your strategy.'}
+          </p>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={avatar.listed}
+                disabled={updatingListing}
+                onChange={(e) => void handleToggleListing(e.target.checked)}
+              />
+              <span>Allow cloning</span>
+            </label>
+
+            {avatar.listed && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' }}>
+                <span style={{ fontSize: '12px', color: 'var(--muted)' }}>Price:</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.01"
+                  value={editPriceNear}
+                  disabled={updatingListing}
+                  onChange={(e) => setEditPriceNear(e.target.value)}
+                  style={{ width: '70px', padding: '3px 6px', fontSize: '12px' }}
+                />
+                <span style={{ fontSize: '12px' }}>NEAR</span>
+                <button
+                  type="button"
+                  disabled={updatingListing}
+                  onClick={() => void handleSavePrice()}
+                  style={{ padding: '3px 8px', fontSize: '12px' }}
+                >
+                  {updatingListing ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            )}
+          </div>
+          {listingError && <p className="panel-error" style={{ margin: '6px 0 0', fontSize: '12px' }}>{listingError}</p>}
+        </div>
+      )}
+
       <section>
         <h3>
           Equity <span className={`badge badge-${avatar.mode}`}>{avatar.mode}</span>
@@ -289,6 +433,25 @@ export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
           ))}
         </ol>
       </section>
+
+      {showCloneModal && (
+        <CloneModal
+          listing={{
+            avatar_id: avatar.id,
+            name: avatar.name,
+            sprite: avatar.sprite,
+            risk: avatar.risk,
+            goal: avatar.goal,
+            creator: avatar.owner,
+            price_yocto: avatar.price_yocto ?? '0',
+          }}
+          onClose={() => setShowCloneModal(false)}
+          onSuccess={(newId) => {
+            setShowCloneModal(false)
+            onOpenAvatar?.(newId)
+          }}
+        />
+      )}
     </>
   )
 }

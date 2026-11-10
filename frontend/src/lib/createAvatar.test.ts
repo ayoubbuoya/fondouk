@@ -15,6 +15,8 @@ const valid: CreateAvatarForm = {
   goal: 'steady_income',
   starting_capital_usd: 10_000,
   mode: 'sim',
+  listed: true,
+  price_yocto: '500000000000000000000000',
 }
 
 describe('validateCreateForm', () => {
@@ -58,6 +60,11 @@ describe('validateDetails', () => {
     expect(validateDetails({ ...valid, mode: 'real', starting_capital_usd: 10 })).toBeNull()
     expect(validateDetails({ ...valid, mode: 'real', starting_capital_usd: 500 })).toMatch(/tUSDC/)
   })
+
+  it('validates clone price when listed', () => {
+    expect(validateDetails({ ...valid, listed: true, price_yocto: '0' })).toMatch(/price/)
+    expect(validateDetails({ ...valid, listed: false, price_yocto: '0' })).toBeNull()
+  })
 })
 
 describe('toCreateRequest', () => {
@@ -69,5 +76,21 @@ describe('toCreateRequest', () => {
       mode: 'real',
       starting_capital_usd: 50,
     })
+  })
+
+  it('sets default listed and price_yocto when omitted', () => {
+    const withoutListing = {
+      name: '  Test  ',
+      sprite: 'boy',
+      persona: 'Hold cash.',
+      risk: 'low' as const,
+      goal: 'steady_income' as const,
+      starting_capital_usd: 10_000,
+      mode: 'sim' as const,
+    }
+    const res = toCreateRequest(withoutListing)
+    expect(res.name).toBe('Test')
+    expect(res.listed).toBe(true)
+    expect(res.price_yocto).toBe('500000000000000000000000')
   })
 })

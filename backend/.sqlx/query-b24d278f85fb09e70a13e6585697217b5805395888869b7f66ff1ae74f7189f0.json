@@ -1,0 +1,98 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT a.id, a.name, a.sprite, a.owner, a.price_yocto,\n               c.risk, c.goal\n        FROM avatars a\n        JOIN avatar_configs c ON c.id = a.config_id\n        WHERE a.listed = true AND a.cloned_from IS NULL\n        ORDER BY a.created_at ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "sprite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "sprite"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "owner",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "owner"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "price_yocto",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "avatars",
+            "name": "price_yocto"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "risk",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatar_configs",
+            "name": "risk"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "goal",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "avatar_configs",
+            "name": "goal"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "b24d278f85fb09e70a13e6585697217b5805395888869b7f66ff1ae74f7189f0"
+}
