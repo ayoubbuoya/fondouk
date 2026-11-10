@@ -59,7 +59,7 @@ import {
 } from './sprites'
 import { townBus, type AvatarMilestone, type AvatarMoved, type VillageHistory } from './townBus'
 import { buildGroundTiles } from './townMap'
-import { layoutStandings, pathLength, placeOf, walkPath, walkSpeed, type Point } from './walkPath'
+import { layoutStandings, layoutTagTiers, pathLength, placeOf, walkPath, walkSpeed, type Point } from './walkPath'
 
 const SPARK_W = 90
 const SPARK_H = 26
@@ -70,6 +70,12 @@ const WALK_FPS = 8
 const STALE_TINT = 0x8a8a8a
 
 const TEXT_FONT = 'system-ui, sans-serif'
+
+/** A name tag's bottom edge above the sprite's centre, in world pixels. */
+const TAG_BASE_Y = -22
+/** One step of the name tag staircase, and a tag's own height, in screen pixels. */
+const TAG_STEP = 13
+const TAG_HEIGHT = 14
 
 /** The "LEVEL UP!" text: how far it floats up (screen pixels) and for how long. */
 const CELEBRATION_RISE = 26
@@ -97,6 +103,8 @@ interface AvatarSprite {
   name: GameObjects.Text
   /** The character's name alone, to rebuild the tag when its level changes. */
   displayName: string
+  /** How many steps the tag is lifted so neighbours do not overlap (`layoutTagTiers`). */
+  tagTier: number
   sprite: SpriteId
   /** Where it stands or is going; `null` = court (all cash). */
   villageId: string | null
@@ -284,9 +292,27 @@ export class TownScene extends Scene {
     for (const avatar of this.avatars.values()) {
       avatar.name.setScale(scale)
       avatar.bubble?.setScale(scale)
+      this.placeNameTag(avatar)
     }
     for (const sign of this.villageSigns) sign.setScale(scale)
     for (const sign of this.landmarkSigns) sign.setScale(scale)
+  }
+
+  /**
+   * Puts the name tag at its step of the staircase (`avatar.tagTier`), and
+   * the speech bubble just above it. The step is in screen pixels, so it is
+   * multiplied by 1/zoom like the tag's own size; called again on every zoom.
+   */
+  private placeNameTag(avatar: AvatarSprite): void {
+    const scale = 1 / this.cameras.main.zoom
+    avatar.name.setY(TAG_BASE_Y - avatar.tagTier * TAG_STEP * scale)
+    avatar.bubble?.setY(this.tagTop(avatar))
+  }
+
+  /** The top edge of a character's name tag: where things above it start. */
+  private tagTop(avatar: AvatarSprite): number {
+    const scale = 1 / this.cameras.main.zoom
+    return TAG_BASE_Y - (avatar.tagTier * TAG_STEP + TAG_HEIGHT) * scale
   }
 
   /**
@@ -298,7 +324,7 @@ export class TownScene extends Scene {
 
     avatar.bubble?.destroy()
 
-    const bubbleContainer = this.add.container(0, -36)
+    const bubbleContainer = this.add.container(0, this.tagTop(avatar))
     const maxTextLen = 45
     const displayText = msg.text.length > maxTextLen ? msg.text.slice(0, maxTextLen) + '…' : msg.text
 
@@ -367,7 +393,8 @@ export class TownScene extends Scene {
 
     // Drawn at 1/zoom like the name tag, so it has the same size at any zoom.
     const scale = 1 / this.cameras.main.zoom
-    const startY = -38
+    // Starts just above the name tag, wherever its step of the staircase is.
+    const startY = this.tagTop(avatar) - 2
     const floating = this.add
       .text(0, startY, text, {
         fontFamily: TEXT_FONT,
@@ -604,7 +631,7 @@ export class TownScene extends Scene {
     const sprite = knownSprite(avatar.sprite)
     const body = this.add.sprite(0, 0, walkTextureKey(sprite), standFrame('down')).setScale(TILE_SCALE)
     const name = this.add
-      .text(0, -22, nameTag(avatar.name, avatar.level), {
+      .text(0, TAG_BASE_Y, nameTag(avatar.name, avatar.level), {
         fontFamily: TEXT_FONT,
         fontSize: '11px',
         color: '#ffffff',
@@ -626,6 +653,7 @@ export class TownScene extends Scene {
       body,
       name,
       displayName: avatar.name,
+      tagTier: 0, // set by the first `relayoutAvatars`
       sprite,
       villageId: avatar.main_village,
       target: { ...start },
@@ -639,8 +667,14 @@ export class TownScene extends Scene {
   private relayoutAvatars(): void {
     const standings = [...this.avatars].map(([id, avatar]) => ({ id, villageId: avatar.villageId }))
     const spots = layoutStandings(standings, this.districts)
+    const tiers = layoutTagTiers(standings, this.districts)
 
     for (const [id, avatar] of this.avatars) {
+      // Before the `continue` below: a neighbour leaving can change the
+      // tier of a character whose spot did not move.
+      avatar.tagTier = tiers.get(id) ?? 0
+      this.placeNameTag(avatar)
+
       const spot = spots.get(id)
       if (!spot || (spot.x === avatar.target.x && spot.y === avatar.target.y)) continue
 

@@ -74,10 +74,11 @@ export function placeOf(villageId: string | null, districts: Map<string, Distric
 }
 
 /**
- * The spot of every character. Characters are sorted by id inside each
- * place, so the same set always gets the same spots.
+ * The characters of each place, sorted by id: a character's position in its
+ * list is its spot number. Key `null` = the court (all cash, or a village
+ * with no district). Sorting makes the same set always give the same result.
  */
-export function layoutStandings(standings: Standing[], districts: Map<string, District>): Map<string, Point> {
+function groupByPlace(standings: Standing[], districts: Map<string, District>): Map<string | null, string[]> {
   const groups = new Map<string | null, string[]>()
   for (const standing of standings) {
     const key = standing.villageId !== null && districts.has(standing.villageId) ? standing.villageId : null
@@ -85,16 +86,56 @@ export function layoutStandings(standings: Standing[], districts: Map<string, Di
     group.push(standing.id)
     groups.set(key, group)
   }
+  for (const ids of groups.values()) ids.sort()
+  return groups
+}
 
+/**
+ * The spot of every character. Characters are sorted by id inside each
+ * place, so the same set always gets the same spots.
+ */
+export function layoutStandings(standings: Standing[], districts: Map<string, District>): Map<string, Point> {
   const spots = new Map<string, Point>()
-  for (const [villageId, ids] of groups) {
-    ids.sort()
+  for (const [villageId, ids] of groupByPlace(standings, districts)) {
     const district = villageId === null ? undefined : districts.get(villageId)
     ids.forEach((id, index) => {
       spots.set(id, district ? districtSlot(district, index) : courtSlot(index))
     })
   }
   return spots
+}
+
+/**
+ * How high each character holds its name tag: 0 = just above the head, 1 =
+ * one step higher, and so on.
+ *
+ * Spots in a row are closer together than a name is wide, so tags at one
+ * height print over each other. The tier is the character's column in its
+ * row, which makes the tags of one row a staircase:
+ *
+ * ```text
+ *             Mehdi          tier 3
+ *          Ines              tier 2
+ *       Yunus                tier 1
+ *    Amira                   tier 0
+ *     ☺   ☺   ☺   ☺
+ * ```
+ *
+ * Known limit: a second row (5 or more characters in one place) starts
+ * again at tier 0, so its tags rise into the first row.
+ */
+export function layoutTagTiers(standings: Standing[], districts: Map<string, District>): Map<string, number> {
+  const tiers = new Map<string, number>()
+  for (const [villageId, ids] of groupByPlace(standings, districts)) {
+    // Same spot numbering and wrap-around as `districtSlot` / `courtSlot`.
+    const inDistrict = villageId !== null
+    const columns = inDistrict ? DISTRICT_COLUMNS : COURT_COLUMNS
+    const maxSlots = inDistrict ? DISTRICT_MAX_SLOTS : COURT_MAX_SLOTS
+    ids.forEach((id, index) => {
+      tiers.set(id, (index % maxSlots) % columns)
+    })
+  }
+  return tiers
 }
 
 /**

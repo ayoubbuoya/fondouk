@@ -15,6 +15,7 @@ import {
   courtSlot,
   districtSlot,
   layoutStandings,
+  layoutTagTiers,
   pathLength,
   placeOf,
   walkPath,
@@ -145,6 +146,54 @@ describe('layoutStandings', () => {
       districts,
     )
     expect(one).toEqual(two)
+  })
+})
+
+describe('layoutTagTiers', () => {
+  const at = (villageId: string | null, ...ids: string[]) => ids.map((id) => ({ id, villageId }))
+
+  it('keeps a lone character at tier 0', () => {
+    expect(layoutTagTiers(at('rhea-lend-usdc', 'a'), districts).get('a')).toBe(0)
+  })
+
+  it('makes a staircase of one row, in the same id order as the spots', () => {
+    const standings = at('rhea-lend-usdc', 'd', 'b', 'a', 'c')
+
+    const tiers = layoutTagTiers(standings, districts)
+
+    expect([...tiers].sort()).toEqual([
+      ['a', 0],
+      ['b', 1],
+      ['c', 2],
+      ['d', 3],
+    ])
+    // Neighbours in the row never share a height: that is what stops the overlap.
+    const spots = layoutStandings(standings, districts)
+    expect(spots.get('a')!.y).toBe(spots.get('d')!.y)
+  })
+
+  it('starts the second row again at tier 0', () => {
+    const tiers = layoutTagTiers(at('rhea-lend-usdc', 'a', 'b', 'c', 'd', 'e'), districts)
+
+    expect(tiers.get('e')).toBe(0)
+  })
+
+  it('tiers each place on its own, the court included', () => {
+    const tiers = layoutTagTiers(
+      [
+        ...at('rhea-lend-usdc', 'a', 'b'),
+        ...at('rhea-dex-frax-usdc', 'c'),
+        ...at(null, 'd', 'e'),
+        ...at('gone', 'f'), // unknown village: stands in the court
+      ],
+      districts,
+    )
+
+    expect(tiers.get('b')).toBe(1)
+    expect(tiers.get('c')).toBe(0)
+    expect(tiers.get('d')).toBe(0)
+    expect(tiers.get('e')).toBe(1)
+    expect(tiers.get('f')).toBe(2)
   })
 })
 
