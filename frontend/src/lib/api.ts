@@ -301,3 +301,20 @@ export function getLeaderboard(tab?: 'main' | 'new'): Promise<LeaderboardEntry[]
 export function confirmDeposit(avatarId: string, txHash: string): Promise<AvatarDetail> {
   return request('POST', `/avatars/${avatarId}/confirm_deposit`, { tx_hash: txHash })
 }
+
+/** One message in the social arena feed (SPEC F9). */
+export interface ArenaMessage {
+  id: number
+  avatar_id: string
+  avatar_name: string
+  sprite: string
+  text: string
+  ts: string
+}
+
+/**
+ * Fetches recent arena messages (SPEC F9, GET /arena/feed).
+ */
+export function getArenaFeed(limit = 50): Promise<ArenaMessage[]> {
+  return request('GET', `/arena/feed?limit=${limit}`)
+}

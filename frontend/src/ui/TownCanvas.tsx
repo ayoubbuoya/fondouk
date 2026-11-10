@@ -14,6 +14,8 @@ export type Selection = { kind: 'avatar'; id: string } | { kind: 'village'; id: 
 interface TownCanvasProps {
   /** A sprite or a building was clicked. */
   onSelect: (selection: Selection) => void
+  /** The central arena area was clicked. */
+  onOpenArena?: () => void
   /** Every live event, so open panels can refresh (F8.5). */
   onLiveEvent: (event: LiveEvent) => void
 }
@@ -34,14 +36,16 @@ interface TownCanvasProps {
  * unmount ─> close /ws, destroy the game
  * ```
  */
-export function TownCanvas({ onSelect, onLiveEvent }: TownCanvasProps) {
+export function TownCanvas({ onSelect, onOpenArena, onLiveEvent }: TownCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   // Callbacks change on every App render; refs keep the effect below mount-only.
   const onSelectRef = useRef(onSelect)
+  const onOpenArenaRef = useRef(onOpenArena)
   const onLiveEventRef = useRef(onLiveEvent)
   useEffect(() => {
     onSelectRef.current = onSelect
+    onOpenArenaRef.current = onOpenArena
     onLiveEventRef.current = onLiveEvent
   })
 
@@ -93,9 +97,11 @@ export function TownCanvas({ onSelect, onLiveEvent }: TownCanvasProps) {
     }
     const onAvatarSelected = (id: string) => onSelectRef.current({ kind: 'avatar', id })
     const onVillageSelected = (id: string) => onSelectRef.current({ kind: 'village', id })
+    const onArenaSelected = () => onOpenArenaRef.current?.()
     townBus.once('town:ready', onReady)
     townBus.on('avatar:selected', onAvatarSelected)
     townBus.on('village:selected', onVillageSelected)
+    townBus.on('arena:selected', onArenaSelected)
     // A newly created character is paused, so no live event announces it.
     townBus.on('avatars:reload', reloadAvatars)
 
@@ -116,6 +122,9 @@ export function TownCanvas({ onSelect, onLiveEvent }: TownCanvasProps) {
         case 'decision':
           if (!knownAvatars.has(event.avatar_id)) reloadAvatars()
           break
+        case 'arena_message':
+          townBus.emit('arena:message', event)
+          break
       }
       onLiveEventRef.current(event)
     })
@@ -125,6 +134,7 @@ export function TownCanvas({ onSelect, onLiveEvent }: TownCanvasProps) {
       townBus.off('town:ready', onReady)
       townBus.off('avatar:selected', onAvatarSelected)
       townBus.off('village:selected', onVillageSelected)
+      townBus.off('arena:selected', onArenaSelected)
       townBus.off('avatars:reload', reloadAvatars)
       stopLiveEvents()
       game.destroy(true)

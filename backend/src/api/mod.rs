@@ -11,6 +11,7 @@
 //! | `POST /marketplace/claim` | logged in (turns a paid purchase into a clone) |
 //! | `GET /ws` | anyone (public events only, D43) |
 
+pub mod arena;
 pub mod auth;
 mod avatars;
 pub mod leaderboard;
@@ -86,6 +87,7 @@ pub fn router(state: AppState) -> Router {
         .route("/marketplace/listings", get(marketplace::list_listings))
         .route("/marketplace/claim", post(marketplace::claim_purchase))
         .route("/leaderboard", get(leaderboard::get_leaderboard))
+        .route("/arena/feed", get(arena::get_feed))
         .route("/ws", get(ws::ws_handler))
         .with_state(state)
 }

@@ -35,7 +35,7 @@ use super::{Action, MarketState, VillageQuote};
 use crate::db::avatars::{self, AvatarWithConfig};
 use crate::db::decisions::{self, NewDecision};
 use crate::db::equity::{self, EquityPoint};
-use crate::db::{positions, villages, yield_snapshots};
+use crate::db::{arena, positions, villages, yield_snapshots};
 use crate::indexer::{is_stale, stop_requested};
 use crate::live_events::{LiveEvent, LiveSender, main_village, publish};
 use crate::sim::ledger::Ledger;
@@ -161,6 +161,16 @@ async fn tick_avatar(
         hold_after_ledger_error(&mut decision);
     }
 
+    // Rate limits for arena messages (SPEC F9.3: 1/hr per avatar, 20/hr total).
+    if let Action::Say { .. } = decision.applied {
+        let one_hour_ago = now - chrono::Duration::hours(1);
+        let avatar_msg_count = arena::avatar_message_count_since(pool, avatar.id, one_hour_ago).await?;
+        let total_msg_count = arena::total_message_count_since(pool, one_hour_ago).await?;
+        if avatar_msg_count >= 1 || total_msg_count >= 20 {
+            hold_after_arena_rate_limit(&mut decision);
+        }
+    }
+
     // 4. Store everything in one transaction.
     let row = NewDecision {
         avatar_id: avatar.id,
@@ -185,12 +195,18 @@ async fn tick_avatar(
     let mut tx = pool.begin().await?;
     positions::replace_positions(&mut tx, avatar.id, ledger.positions()).await?;
     avatars::update_cash(&mut *tx, avatar.id, ledger.cash_usd()).await?;
-    decisions::insert_decision(&mut *tx, &row).await?;
+    let decision_id = decisions::insert_decision(&mut *tx, &row).await?;
     let point = EquityPoint {
         ts: now,
         equity_usd: ledger.equity(),
     };
     equity::insert_equity_point(&mut *tx, avatar.id, SOURCE, &point).await?;
+
+    let mut arena_msg_id = None;
+    if let Action::Say { ref text, .. } = decision.applied {
+        let msg_id = arena::insert_arena_message(&mut tx, avatar.id, Some(decision_id), now, text).await?;
+        arena_msg_id = Some(msg_id);
+    }
     // An early `?` above drops `tx` without commit: sqlx rolls it all back.
     tx.commit().await?;
 
@@ -208,6 +224,19 @@ async fn tick_avatar(
             equity_usd: point.equity_usd,
         },
     );
+    if let (Some(msg_id), Action::Say { text, .. }) = (arena_msg_id, &decision.applied) {
+        publish(
+            events,
+            LiveEvent::ArenaMessage {
+                id: msg_id,
+                avatar_id: avatar.id,
+                avatar_name: avatar.name.clone(),
+                sprite: avatar.sprite.clone(),
+                text: text.clone(),
+                ts: now,
+            },
+        );
+    }
     let village_after = main_village(ledger.positions());
     if village_after != village_before {
         publish(
@@ -238,6 +267,17 @@ fn hold_after_ledger_error(decision: &mut Decision) {
         reason: format!("Holding: proposal refused ({LEDGER_ERROR})."),
     };
     decision.rejected_rule = Some(LEDGER_ERROR.to_string());
+    decision.cost_usd = Decimal::ZERO;
+}
+
+const ARENA_RATE_LIMIT: &str = "arena_rate_limit";
+
+/// Turns an allowed SAY into HOLD after the arena rate limit was hit.
+fn hold_after_arena_rate_limit(decision: &mut Decision) {
+    decision.applied = Action::Hold {
+        reason: format!("Holding: arena rate limit reached ({ARENA_RATE_LIMIT})."),
+    };
+    decision.rejected_rule = Some(ARENA_RATE_LIMIT.to_string());
     decision.cost_usd = Decimal::ZERO;
 }
 

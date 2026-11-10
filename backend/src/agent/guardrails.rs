@@ -128,6 +128,12 @@ pub enum RejectedRule {
     MinGain,
     /// The cost is larger than 7 days of the expected gain.
     CostTooHigh,
+    /// SAY `text` is empty or longer than 140 characters.
+    InvalidText,
+    /// SAY text or reason leaks the private persona (8-word overlap, SPEC F9.2).
+    PersonaLeak,
+    /// Arena rate limit reached (SPEC F9.3: 1/hr per avatar or 20/hr total).
+    ArenaRateLimit,
 }
 
 impl RejectedRule {
@@ -146,6 +152,9 @@ impl RejectedRule {
             Self::NoSwapRoute => "no_swap_route",
             Self::MinGain => "min_gain",
             Self::CostTooHigh => "cost_too_high",
+            Self::InvalidText => "invalid_text",
+            Self::PersonaLeak => "persona_leak",
+            Self::ArenaRateLimit => "arena_rate_limit",
         }
     }
 }
@@ -193,7 +202,13 @@ fn check_limits(
     check_reason(action)?;
 
     match action {
-        Action::Hold { .. } | Action::Say { .. } => Ok(()),
+        Action::Hold { .. } => Ok(()),
+        Action::Say { text, .. } => {
+            if text.trim().is_empty() || text.chars().count() > 140 {
+                return Err(RejectedRule::InvalidText);
+            }
+            Ok(())
+        }
         Action::Move {
             from, to, percent, ..
         } => {
@@ -263,6 +278,36 @@ fn check_reason(action: &Action) -> Result<(), RejectedRule> {
         return Err(RejectedRule::ReasonTooLong);
     }
     Ok(())
+}
+
+/// Splits `s` into lowercase alphanumeric words for leak detection.
+pub fn extract_words(s: &str) -> Vec<String> {
+    s.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| w.to_lowercase())
+        .collect()
+}
+
+/// Checks whether `text` contains any sliding sequence of 8 consecutive words
+/// that also appears as a sequence in `persona` (SPEC F9.2, acceptance criterion).
+pub fn has_8_word_overlap(text: &str, persona: &str) -> bool {
+    let text_words = extract_words(text);
+    if text_words.len() < 8 {
+        return false;
+    }
+    let persona_words = extract_words(persona);
+    if persona_words.len() < 8 {
+        return false;
+    }
+
+    let persona_windows: std::collections::HashSet<&[String]> =
+        persona_words.windows(8).collect();
+    for window in text_words.windows(8) {
+        if persona_windows.contains(window) {
+            return true;
+        }
+    }
+    false
 }
 
 /// A village may receive money only if it is listed this tick (fresh data)

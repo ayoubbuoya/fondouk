@@ -8,21 +8,23 @@ This file is for anyone joining the project (teammates or a coding agent). Read 
 
 ## 1. Current state
 
-- **Phase:** Day 1 to Day 11 built; **Leaderboard (SPEC F10) fully implemented & tested across backend and frontend (10 Nov).** Real Mode (Option 2: Test Token + Vault Contract) deployed to testnet.
+- **Phase:** Day 1 to Day 12 built; **Social Arena (SPEC F9) & Leaderboard (SPEC F10) fully implemented & tested across backend and frontend (10 Nov).** Real Mode (Option 2: Test Token + Vault Contract) deployed to testnet.
 - **Contracts (`contracts/`):**
   - `contracts/test_token`: NEP-141 token (`tUSDC`, 6 decimals) with built-in public `mint_faucet()` giving 100 tUSDC to test with. **Deployed to `test_token.fondouk.testnet`** (initialized with `new()`).
   - `contracts/vault`: Smart contract holding avatar funds, accepting deposits via `ft_on_transfer` (emits NEP-297 `vault_deposited`), owner-only `withdraw(avatar_id, amount)`, cap checks, and operator-restricted action boundaries. **Deployed to `vault.fondouk.testnet`** (initialized with owner/operator `owner.fondouk.testnet`, token `test_token.fondouk.testnet`).
   - Both contracts have 100% passing native unit tests (3/3 test_token, 5/5 vault). Faucet claim verified live on testnet (tx `8fzyuVua163XBsxAXHmMvVNT4zrezh2nff8RXU1V8co`).
 - **Backend (`backend/`):**
-  - Migration 0010 adds `deposit_tx_hash` and `deposit_token` to `avatars`.
-  - `POST /avatars` accepts `mode: "real"` with `REAL_STARTING_CAPITALS = [10, 25, 50, 100]`.
-  - `POST /avatars/{id}/confirm_deposit { tx_hash }` fetches the execution receipt from NEAR RPC, verifies `vault_deposited` event and amount/token, activates the avatar, and records real equity.
-  - 287 backend tests pass.
+  - Migration 0011 adds `arena_messages` table with indexes on `(ts DESC)` and `(avatar_id, ts DESC)`.
+  - Guardrails & Decide: automated 8-word persona anti-leak detection (`has_8_word_overlap`), 1-140 character limit, and hourly rate limits (1/hr per character, 20/hr global).
+  - API: `GET /arena/feed?limit=50` returning recent town square messages.
+  - Live events: `LiveEvent::ArenaMessage` broadcast to `/ws` subscribers.
+  - 293 backend tests pass; clippy clean; offline sqlx cache up to date.
 - **Frontend (`frontend/`):**
-  - Header: "🚰 Faucet (100 tUSDC)" button to claim test tokens directly to connected NEAR wallet.
-  - Create Avatar Wizard: Sim vs Real Mode selection, 10/25/50/100 tUSDC deposit options, direct wallet `ft_transfer_call` execution to the Vault contract, and `confirm_deposit` invocation.
-  - Avatar Side Panel: Real mode badge (`.badge-real`), deposit transaction explorer link to Nearblocks, and owner-only "Withdraw funds" button.
-  - 53 frontend tests pass; build clean.
+  - Header: "💬 Arena" button to open the live social feed alongside Leaderboard and Marketplace.
+  - Interactive map: clicking the central town square arena emits `arena:selected` and opens the Arena panel.
+  - Arena Panel (`ArenaPanel.tsx`): live feed of avatar commentary with face icons, clickable avatar links, relative time, and real-time WebSocket updates.
+  - Map speech bubbles: animated floating pixel speech bubbles above talking sprites in Phaser (auto-fading after 5s).
+  - 68 frontend vitest tests pass; oxlint and build clean.
 
 ---
 
@@ -95,6 +97,7 @@ This file is for anyone joining the project (teammates or a coding agent). Read 
 | D60 | (6 Nov) Backtest window = **7 days** instead of 30 (`backtest::BACKTEST_DAYS`), so the LLM backtest costs at most 7 `decide()` calls per avatar. `guardrails::GAIN_HORIZON_DAYS` (min-gain cost horizon, D32) **stays 30**. Rejected: moving the guardrail horizon to 7 too (D32 already rejected 7: it makes the rule almost the same as "cost > 7 days of gain"). | AI cost. Side effect: low-risk avatars (6-tick cooldown, D29) stay mostly in cash during a 7-day backtest, so their curve is flat. Today the backtest uses `mock_decide`, so nothing is saved until D35 (LLM backtest) is built. |
 | D64 | (6 Nov) Every LLM request sends **`reasoning_effort: "none"`** (always, no env flag), and an empty reply fails with `LLM reply has no text content (finish_reason=<x>)` (`agent::llm`). Rejected: raising `MAX_COMPLETION_TOKENS` above 300 (pays for hidden reasoning on every tick and backtest day), switching to a non-reasoning model, an `LLM_DISABLE_REASONING` env flag (no proven need yet). | With `deepseek/deepseek-v4.1-flash-1017` almost every call returned HTTP 200 with `content: null`: the reasoning used up the 300-token cap, so agents only HOLD with `llm_error`. The old error did not say why. Risk: NEAR AI Cloud may reject the field (see U6). |
 | D65 | (9 Nov) **Real Mode via Test NEP-141 Token (`test_token`) with public Faucet + Vault smart contract.** Token has 6 decimals (`tUSDC`) and `mint_faucet()` (100 tUSDC). Vault contract accepts avatar deposits via `ft_on_transfer(amount, msg: avatar_id)`, tracks balances per avatar, emits NEP-297 `vault_deposited`, enforces 100 tUSDC cap per avatar, and allows owner-only `withdraw(avatar_id, amount)`. Backend migration 0010 adds `deposit_tx_hash` and `deposit_token` to `avatars`; `POST /avatars/{id}/confirm_deposit {tx_hash}` verifies receipt execution from NEAR RPC, activates the avatar, and records real equity. Frontend adds 🚰 Faucet button, Sim/Real toggle with 10/25/50/100 tUSDC deposit options in the wizard, deposit signing, and Withdraw button in AvatarPanel. | User chose Option 2 to demonstrate genuine on-chain deposits without risking real mainnet capital or relying on unmaintained testnet Rhea contracts. |
+| D66 | (10 Nov) **Social Arena (SPEC F9):** migration 0011 `arena_messages`, automated 8-word persona anti-leak detection (`guardrails::has_8_word_overlap`), 1–140 chars text check, pre-commit hourly rate limits (1/hr per avatar, 20/hr global), `LiveEvent::ArenaMessage` broadcast over `/ws`, `GET /arena/feed?limit=50`, frontend `ArenaPanel`, Header "💬 Arena" button, map arena click, and animated Phaser speech bubbles (auto-fading after 5s). | Brings the town square alive with zero persona leakage. Fits the games and privacy track demo. |
 
 ---
 
@@ -254,6 +257,7 @@ Environment variables. The first five, the `LLM_*` / `AGENT_TICK_SECS` ones and 
 | 6 Nov 2026 | Ayoub + Claude | D64, **not committed**: `agent::llm` sends `reasoning_effort: "none"` and names `finish_reason` when a reply has no text (fix for "LLM reply has no text content" with deepseek-v4.1-flash). 3 new tests with a fake LLM server. 285/286 pass; the 1 failure is the D63 test that was already failing (`decisions_and_equity_need_one_source_and_never_mix_them`). Clippy clean. | Run the backend and check that ticks log `rejected_rule="-"`; test NEAR AI Cloud with the field (U6). |
 | 9 Nov 2026 | Ayoub + Claude | D65 (Real Mode Option 2): built and deployed `contracts/test_token` to `test_token.fondouk.testnet` (NEP-141 + `mint_faucet`) and `contracts/vault` to `vault.fondouk.testnet` (deposit accounting + owner-only withdraw); verified test faucet claim on testnet; backend migration 0010 (`deposit_tx_hash`, `deposit_token`), `confirm_deposit` RPC verification endpoint; fixed legacy D63 test; frontend Faucet button, Sim/Real toggle with 10/25/50/100 tUSDC deposit options in wizard, deposit signing, explorer link, and owner withdraw button in AvatarPanel. 287 backend tests pass, 53 frontend tests pass, 8 contract unit tests pass. | End-to-end testing in browser. |
 | 10 Nov 2026 | Ayoub + buoya | Day 11 (SPEC F10 Leaderboard): `backend/src/db/leaderboard.rs` (query avatars with clone/move counts, windowed live equity snapshots); `backend/src/api/leaderboard.rs` (`compute_avatar_metrics` with pure 7d/30d return and peak-to-trough drawdown math, F10.3 acceptance tests for 3 sample characters, `GET /leaderboard?tab=main|new`); `.sqlx` offline query cache updated; frontend `api.ts`, `format.ts` (`formatPercent`, `formatDrawdown`, `formatAge`), `format.test.ts`, `LeaderboardPanel.tsx` (tabs, sortable table, avatar click to view details), `Header.tsx` (Leaderboard button), `App.tsx`, and responsive styles in `index.css`. All backend tests pass, 62 frontend tests pass, lint and build clean. | Day 12: Social arena / demo seed / judge tour. |
+| 10 Nov 2026 | Ayoub + buoya | Day 12 (SPEC F9 Social Arena): migration 0011 (`arena_messages`); `guardrails::has_8_word_overlap` automated persona anti-leak check (F9.2) and 1–140 chars text check; `decide.rs` persona leak detection turning SAY to HOLD `persona_leak`; `db::arena` (insert, per-avatar & global hourly limits, recent feed); `tick.rs` pre-commit rate limits (1/hr per avatar, 20/hr global) turning SAY to HOLD `arena_rate_limit`, atomic message insert, and `LiveEvent::ArenaMessage` broadcast; `api::arena` (`GET /arena/feed`); frontend `api.ts` (`ArenaMessage`, `getArenaFeed`), `liveEvents.ts` parser, `townBus` events, `ArenaPanel.tsx` with live message feed and face badges, Header "💬 Arena" button, canvas arena click, and animated Phaser speech bubbles (5s fade). 293 backend tests pass (clippy clean, .sqlx prepared), 68 frontend tests pass (lint and build clean). | Demo seed check (10 avatars running live) & Judge tour (F12). |
 
 ---
 

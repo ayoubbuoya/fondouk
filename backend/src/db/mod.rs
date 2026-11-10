@@ -1,6 +1,7 @@
 //! Database access. Each submodule owns the queries for one group of tables
 //! (see dev-docs/2026-11-02/database-design.md).
 
+pub mod arena;
 pub mod auth;
 pub mod avatars;
 pub mod decisions;

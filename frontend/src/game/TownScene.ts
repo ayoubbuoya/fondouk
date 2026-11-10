@@ -23,7 +23,7 @@
 
 import { GameObjects, Input, Scene, Textures, Tilemaps, Tweens } from 'phaser'
 
-import type { AvatarSummary, Village, YieldPoint } from '../lib/api'
+import type { ArenaMessage, AvatarSummary, Village, YieldPoint } from '../lib/api'
 import { formatApy, staleLabel, totalApy } from '../lib/format'
 import { nextZoom } from './cameraZoom'
 import {
@@ -81,6 +81,8 @@ interface AvatarSprite {
   /** The spot it is standing on, or walking to. */
   target: Point
   walk?: Tweens.TweenChain
+  /** Floating speech bubble shown when posting an arena message. */
+  bubble?: GameObjects.Container
 }
 
 export class TownScene extends Scene {
@@ -125,7 +127,7 @@ export class TownScene extends Scene {
 
     this.buildGround([])
     this.add
-      .text(CENTER.x, CENTER.y - 58, 'Arena', {
+      .text(CENTER.x, CENTER.y - 58, '💬 Arena', {
         fontFamily: TEXT_FONT,
         fontSize: '16px',
         fontStyle: 'bold',
@@ -135,6 +137,15 @@ export class TownScene extends Scene {
       })
       .setOrigin(0.5)
       .setDepth(1)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => townBus.emit('arena:selected'))
+
+    this.add
+      .zone(CENTER.x, CENTER.y, 5 * TILE_SIZE * TILE_SCALE, 5 * TILE_SIZE * TILE_SCALE)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => townBus.emit('arena:selected'))
+      .setDepth(0.5)
+
     this.villageLayer = this.add.container(0, 0).setDepth(1)
 
     const onVillages = (villages: Village[]) => {
@@ -157,10 +168,13 @@ export class TownScene extends Scene {
       avatar.villageId = to
       this.relayoutAvatars()
     }
+    const onArenaMessage = (msg: ArenaMessage) => this.showSpeechBubble(msg)
+
     townBus.on('villages:updated', onVillages)
     townBus.on('village:history', onHistory)
     townBus.on('avatars:updated', onAvatars)
     townBus.on('avatar:moved', onMoved)
+    townBus.on('arena:message', onArenaMessage)
     // Stop listening when the game is destroyed (React unmount), otherwise a
     // second game (StrictMode, hot reload) would get events for a dead scene.
     const unsubscribe = () => {
@@ -168,6 +182,7 @@ export class TownScene extends Scene {
       townBus.off('village:history', onHistory)
       townBus.off('avatars:updated', onAvatars)
       townBus.off('avatar:moved', onMoved)
+      townBus.off('arena:message', onArenaMessage)
     }
     this.events.once('shutdown', unsubscribe)
     this.events.once('destroy', unsubscribe)
@@ -228,7 +243,75 @@ export class TownScene extends Scene {
     const scale = 1 / this.cameras.main.zoom
     for (const avatar of this.avatars.values()) {
       avatar.name.setScale(scale)
+      avatar.bubble?.setScale(scale)
     }
+  }
+
+  /**
+   * Shows a floating speech bubble above the talking avatar for 5 seconds (SPEC F9.1).
+   */
+  private showSpeechBubble(msg: ArenaMessage): void {
+    const avatar = this.avatars.get(msg.avatar_id)
+    if (!avatar) return
+
+    avatar.bubble?.destroy()
+
+    const bubbleContainer = this.add.container(0, -36)
+    const maxTextLen = 45
+    const displayText = msg.text.length > maxTextLen ? msg.text.slice(0, maxTextLen) + '…' : msg.text
+
+    const textObj = this.add
+      .text(0, -6, displayText, {
+        fontFamily: TEXT_FONT,
+        fontSize: '11px',
+        color: '#ffffff',
+        wordWrap: { width: 130 },
+        align: 'center',
+      })
+      .setOrigin(0.5, 1)
+
+    const bounds = textObj.getBounds()
+    const padX = 8
+    const padY = 5
+    const w = Math.max(bounds.width + padX * 2, 44)
+    const h = bounds.height + padY * 2
+
+    const bg = this.add.graphics()
+    bg.fillStyle(0x18181b, 0.92)
+    bg.lineStyle(1.5, 0x60a5fa, 1)
+    bg.fillRoundedRect(-w / 2, -h - 4, w, h, 6)
+    bg.strokeRoundedRect(-w / 2, -h - 4, w, h, 6)
+    // Little pointer triangle at the bottom pointing to the head
+    bg.fillTriangle(-4, -4, 4, -4, 0, 0)
+
+    textObj.setPosition(0, -padY - 4)
+    bubbleContainer.add([bg, textObj])
+    bubbleContainer.setDepth(15)
+    bubbleContainer.setScale(1 / this.cameras.main.zoom)
+
+    avatar.container.add(bubbleContainer)
+    avatar.bubble = bubbleContainer
+
+    this.tweens.add({
+      targets: bubbleContainer,
+      alpha: { from: 0, to: 1 },
+      duration: 200,
+      onComplete: () => {
+        this.time.delayedCall(5000, () => {
+          if (avatar.bubble === bubbleContainer) {
+            this.tweens.add({
+              targets: bubbleContainer,
+              alpha: 0,
+              duration: 400,
+              onComplete: () => {
+                bubbleContainer.destroy()
+                if (avatar.bubble === bubbleContainer) avatar.bubble = undefined
+              },
+            })
+          }
+        })
+      },
+    })
   }
 
   /** One looping walk animation per character and direction (8 × 4). */

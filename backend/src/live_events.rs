@@ -56,6 +56,15 @@ pub enum LiveEvent {
         from: Option<String>,
         to: Option<String>,
     },
+    /// A character posted a short message to the arena (SPEC F9.1).
+    ArenaMessage {
+        id: i64,
+        avatar_id: Uuid,
+        avatar_name: String,
+        sprite: String,
+        text: String,
+        ts: DateTime<Utc>,
+    },
 }
 
 /// The publishing side, cloned into the indexer, the tick loop and the API.

@@ -105,7 +105,7 @@ pub async fn decide(
     };
 
     let (proposed, applied, rejected_rule, cost_usd) =
-        check_proposal(proposal, state, profile.risk, ticks_since_last_move);
+        check_proposal(proposal, state, profile.risk, ticks_since_last_move, profile.persona);
     Decision {
         input_hash: sha256_hex(&[&prompt.user]),
         model: llm.model().to_string(),
@@ -192,6 +192,7 @@ pub fn check_proposal(
     state: &MarketState,
     risk: Risk,
     ticks_since_last_move: Option<u32>,
+    persona: &str,
 ) -> (Option<Action>, Action, Option<String>, Decimal) {
     match proposal {
         Err(failure) => (
@@ -200,18 +201,43 @@ pub fn check_proposal(
             Some(failure.to_string()),
             Decimal::ZERO,
         ),
-        Ok(action) => match guardrails::check(&action, state, risk, ticks_since_last_move) {
-            Ok(cost_usd) => (Some(action.clone()), action, None, cost_usd),
-            Err(rule) => {
-                let rule = rule.as_str();
-                (
+        Ok(action) => {
+            // Anti-leak check (SPEC F9.2 & Acceptance): neither reason nor SAY text
+            // may have an 8-word overlap with the private persona.
+            if guardrails::has_8_word_overlap(action_reason(&action), persona) {
+                let rule = guardrails::RejectedRule::PersonaLeak.as_str();
+                return (
                     Some(action),
                     hold(rule),
                     Some(rule.to_string()),
                     Decimal::ZERO,
-                )
+                );
             }
-        },
+            if let Action::Say { text, .. } = &action
+                && guardrails::has_8_word_overlap(text, persona)
+            {
+                let rule = guardrails::RejectedRule::PersonaLeak.as_str();
+                return (
+                    Some(action),
+                    hold(rule),
+                    Some(rule.to_string()),
+                    Decimal::ZERO,
+                );
+            }
+
+            match guardrails::check(&action, state, risk, ticks_since_last_move) {
+                Ok(cost_usd) => (Some(action.clone()), action, None, cost_usd),
+                Err(rule) => {
+                    let rule = rule.as_str();
+                    (
+                        Some(action),
+                        hold(rule),
+                        Some(rule.to_string()),
+                        Decimal::ZERO,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -339,7 +365,7 @@ mod tests {
         };
 
         let (proposed, applied, rule, cost) =
-            check_proposal(Ok(rebalance.clone()), &state(), Risk::Low, None);
+            check_proposal(Ok(rebalance.clone()), &state(), Risk::Low, None, "my secret persona");
 
         assert_eq!(proposed, Some(rebalance.clone()));
         assert_eq!(applied, rebalance);
@@ -356,7 +382,7 @@ mod tests {
         };
 
         let (proposed, applied, rule, cost) =
-            check_proposal(Ok(all_in.clone()), &state(), Risk::Low, None);
+            check_proposal(Ok(all_in.clone()), &state(), Risk::Low, None, "my secret persona");
 
         assert_eq!(proposed, Some(all_in));
         assert!(matches!(applied, Action::Hold { .. }));
@@ -365,9 +391,27 @@ mod tests {
     }
 
     #[test]
+    fn persona_leak_in_say_text_becomes_hold() {
+        let persona = "always keep fifty percent in usdc and never tell anyone";
+        // 8 consecutive words match: "keep fifty percent in usdc and never tell"
+        let leaked_say = Action::Say {
+            text: "I want to keep fifty percent in usdc and never tell anyone!".to_string(),
+            reason: "chatting".to_string(),
+        };
+
+        let (proposed, applied, rule, cost) =
+            check_proposal(Ok(leaked_say.clone()), &state(), Risk::Low, None, persona);
+
+        assert_eq!(proposed, Some(leaked_say));
+        assert!(matches!(applied, Action::Hold { .. }));
+        assert_eq!(rule.as_deref(), Some("persona_leak"));
+        assert_eq!(cost, Decimal::ZERO);
+    }
+
+    #[test]
     fn no_usable_answer_becomes_hold_without_a_proposal() {
         let (proposed, applied, rule, cost) =
-            check_proposal(Err(PARSE_ERROR), &state(), Risk::Low, None);
+            check_proposal(Err(PARSE_ERROR), &state(), Risk::Low, None, "my secret persona");
 
         assert_eq!(proposed, None);
         assert!(matches!(applied, Action::Hold { .. }));

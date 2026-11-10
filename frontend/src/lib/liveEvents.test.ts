@@ -28,8 +28,30 @@ describe('parseLiveEvent', () => {
     })
   })
 
+  it('parses an arena_message event', () => {
+    const text = JSON.stringify({
+      type: 'arena_message',
+      id: 1,
+      avatar_id: 'a1',
+      avatar_name: 'Amira',
+      sprite: 'princess',
+      text: 'Yield is up in Rhea Lend USDC!',
+      ts: '2026-11-10T08:00:00Z',
+    })
+
+    expect(parseLiveEvent(text)).toEqual({
+      type: 'arena_message',
+      id: 1,
+      avatar_id: 'a1',
+      avatar_name: 'Amira',
+      sprite: 'princess',
+      text: 'Yield is up in Rhea Lend USDC!',
+      ts: '2026-11-10T08:00:00Z',
+    })
+  })
+
   it('ignores unknown event types', () => {
-    expect(parseLiveEvent('{"type":"arena_message","text":"hi"}')).toBeNull()
+    expect(parseLiveEvent('{"type":"unknown_type","foo":"bar"}')).toBeNull()
   })
 
   it('ignores broken JSON and non-objects', () => {

@@ -7,6 +7,7 @@ import {
   formatDrawdown,
   formatNear,
   formatPercent,
+  formatTimeAgo,
   formatUsd,
   staleLabel,
   totalApy,
@@ -171,5 +172,29 @@ describe('formatAge', () => {
   it('formats positive days with a d suffix', () => {
     expect(formatAge(1)).toBe('1d')
     expect(formatAge(14)).toBe('14d')
+  })
+})
+
+describe('formatTimeAgo', () => {
+  const base = new Date('2026-11-10T12:00:00Z')
+
+  it('formats seconds ago as just now', () => {
+    expect(formatTimeAgo('2026-11-10T11:59:45Z', base)).toBe('just now')
+  })
+
+  it('formats minutes ago', () => {
+    expect(formatTimeAgo('2026-11-10T11:45:00Z', base)).toBe('15m ago')
+  })
+
+  it('formats hours ago', () => {
+    expect(formatTimeAgo('2026-11-10T09:00:00Z', base)).toBe('3h ago')
+  })
+
+  it('formats days ago', () => {
+    expect(formatTimeAgo('2026-11-08T12:00:00Z', base)).toBe('2d ago')
+  })
+
+  it('handles invalid timestamp gracefully', () => {
+    expect(formatTimeAgo('invalid', base)).toBe('–')
   })
 })

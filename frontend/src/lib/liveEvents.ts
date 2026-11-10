@@ -25,6 +25,15 @@ export type LiveEvent =
       equity_usd: string
     }
   | { type: 'avatar_move'; avatar_id: string; from: string | null; to: string | null }
+  | {
+      type: 'arena_message'
+      id: number
+      avatar_id: string
+      avatar_name: string
+      sprite: string
+      text: string
+      ts: string
+    }
 
 /**
  * Turns one WebSocket text frame into an event, or `null` if it is not JSON
@@ -47,6 +56,12 @@ export function parseLiveEvent(text: string): LiveEvent | null {
       return typeof event.avatar_id === 'string' ? (event as LiveEvent) : null
     case 'avatar_move':
       return typeof event.avatar_id === 'string' ? (event as LiveEvent) : null
+    case 'arena_message':
+      return typeof event.id === 'number' &&
+        typeof event.avatar_id === 'string' &&
+        typeof event.text === 'string'
+        ? (event as LiveEvent)
+        : null
     default:
       return null
   }

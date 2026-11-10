@@ -14,12 +14,16 @@
  * | `avatar:moved`     | `AvatarMoved`      | React -> TownScene |
  * | `avatar:selected`  | avatar id          | TownScene -> React |
  * | `village:selected` | village id         | TownScene -> React |
+ * | `arena:selected`   | none               | TownScene -> React |
+ * | `arena:message`    | `ArenaMessage`     | React -> TownScene |
  * | `avatars:reload`   | none               | App -> TownCanvas (after a create, D63) |
  */
 
 import { Events } from 'phaser'
 
-import type { YieldPoint } from '../lib/api'
+import type { ArenaMessage, YieldPoint } from '../lib/api'
+
+export type { ArenaMessage }
 
 export interface VillageHistory {
   villageId: string

@@ -121,3 +121,19 @@ export function formatAge(days: number): string {
   if (days <= 0) return '<1d'
   return `${days}d`
 }
+
+/**
+ * Formats an ISO timestamp as a relative time, e.g. "just now", "5m ago", "2h ago", "3d ago".
+ */
+export function formatTimeAgo(isoString: string, now = new Date()): string {
+  const ts = Date.parse(isoString)
+  if (Number.isNaN(ts)) return '–'
+  const seconds = Math.max(0, Math.floor((now.getTime() - ts) / 1000))
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
