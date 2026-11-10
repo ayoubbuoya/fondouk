@@ -101,6 +101,9 @@ export default function App() {
   const goToTourStep = (stepIdx: number) => {
     setTourStep(stepIdx)
     const step = getTourStep(stepIdx)
+    if (step.cameraFocus) {
+      townBus.emit('camera:focus', step.cameraFocus)
+    }
     if (step.target.selectAvatar) {
       setPanel('none')
       setSelection({ kind: 'avatar', id: 'a0000000-0000-4000-8000-000000000001' })
@@ -119,6 +122,7 @@ export default function App() {
 
   const closeTour = () => {
     setTourStep(null)
+    townBus.emit('camera:focus', { reset: true })
   }
 
   // A new character sends no live event while paused, so the town is told to

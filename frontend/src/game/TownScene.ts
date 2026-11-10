@@ -57,7 +57,7 @@ import {
   type Direction,
   type SpriteId,
 } from './sprites'
-import { townBus, type AvatarMilestone, type AvatarMoved, type VillageHistory } from './townBus'
+import { townBus, type AvatarMilestone, type AvatarMoved, type CameraFocus, type VillageHistory } from './townBus'
 import { buildGroundTiles } from './townMap'
 import { layoutStandings, layoutTagTiers, pathLength, placeOf, walkPath, walkSpeed, type Point } from './walkPath'
 
@@ -184,6 +184,13 @@ export class TownScene extends Scene {
     }
     const onArenaMessage = (msg: ArenaMessage) => this.showSpeechBubble(msg)
     const onMilestone = (milestone: AvatarMilestone) => this.celebrate(milestone)
+    const onFocus = (focus: CameraFocus) => this.focusCamera(focus)
+    const onSpawnClone = (clone: AvatarSummary) => {
+      if (!this.avatars.has(clone.id)) {
+        this.avatars.set(clone.id, this.createAvatarSprite(clone))
+        this.relayoutAvatars()
+      }
+    }
     const onResize = (gameSize: Structs.Size) => this.fitCamera(gameSize.width, gameSize.height)
 
     townBus.on('villages:updated', onVillages)
@@ -192,6 +199,8 @@ export class TownScene extends Scene {
     townBus.on('avatar:moved', onMoved)
     townBus.on('arena:message', onArenaMessage)
     townBus.on('avatar:milestone', onMilestone)
+    townBus.on('camera:focus', onFocus)
+    townBus.on('demo:spawn_clone', onSpawnClone)
     this.scale.on('resize', onResize)
     // Stop listening when the game is destroyed (React unmount), otherwise a
     // second game (StrictMode, hot reload) would get events for a dead scene.
@@ -202,6 +211,8 @@ export class TownScene extends Scene {
       townBus.off('avatar:moved', onMoved)
       townBus.off('arena:message', onArenaMessage)
       townBus.off('avatar:milestone', onMilestone)
+      townBus.off('camera:focus', onFocus)
+      townBus.off('demo:spawn_clone', onSpawnClone)
       this.scale.off('resize', onResize)
     }
     this.events.once('shutdown', unsubscribe)
@@ -280,6 +291,57 @@ export class TownScene extends Scene {
       camera.setZoom(limits.min)
     }
     this.applyLabelScale()
+  }
+
+  /**
+   * Smoothly pans (and optionally zooms) the camera to an avatar, village,
+   * landmark, or resets back to the full town view (used by the Judge Tour).
+   */
+  public focusCamera(focus: CameraFocus): void {
+    const camera = this.cameras.main
+    if (focus.reset) {
+      const town = toPixels(TOWN)
+      const freeHeight = Math.max(1, this.scale.height - HUD_INSETS.top - HUD_INSETS.bottom)
+      const start = zoomLimits({ w: this.scale.width, h: freeHeight }, WORLD_PIXELS, { w: town.w, h: town.h }).start
+      const shift = (HUD_INSETS.top - HUD_INSETS.bottom) / 2 / start
+      camera.pan(town.x + town.w / 2, town.y + town.h / 2 - shift, 600, 'Power2')
+      camera.zoomTo(Math.max(this.minZoom, start), 600, 'Power2')
+      return
+    }
+
+    let targetX: number | undefined
+    let targetY: number | undefined
+
+    if (focus.avatarId) {
+      const avatar = this.avatars.get(focus.avatarId)
+      if (avatar) {
+        targetX = avatar.container.x
+        targetY = avatar.container.y
+      }
+    } else if (focus.villageId) {
+      const district = this.districts.get(focus.villageId)
+      if (district) {
+        targetX = district.building.x
+        targetY = district.building.y
+      }
+    } else if (focus.landmarkId) {
+      const landmark = LANDMARKS.find((l) => l.id === focus.landmarkId)
+      if (landmark) {
+        const box = toPixels(landmark.prop.tiles)
+        targetX = box.x + box.w / 2
+        targetY = box.y + box.h / 2
+      }
+    } else if (focus.x !== undefined && focus.y !== undefined) {
+      targetX = focus.x
+      targetY = focus.y
+    }
+
+    if (targetX !== undefined && targetY !== undefined) {
+      camera.pan(targetX, targetY, 600, 'Power2')
+    }
+    if (focus.zoom !== undefined) {
+      camera.zoomTo(focus.zoom, 600, 'Power2')
+    }
   }
 
   /**

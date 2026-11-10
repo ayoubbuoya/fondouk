@@ -23,13 +23,24 @@
 
 import { Events } from 'phaser'
 
-import type { ArenaMessage, YieldPoint } from '../lib/api'
+import type { ArenaMessage, AvatarSummary, YieldPoint } from '../lib/api'
 
-export type { ArenaMessage }
+export type { ArenaMessage, AvatarSummary }
 
 export interface VillageHistory {
   villageId: string
   points: YieldPoint[]
+}
+
+/** Focuses the game camera on a target (e.g. during Judge Tour). */
+export interface CameraFocus {
+  x?: number
+  y?: number
+  avatarId?: string
+  villageId?: string
+  landmarkId?: string
+  zoom?: number
+  reset?: boolean
 }
 
 /** From the `/ws` `avatar_move` event: the sprite walks to `to` (`null` = arena). */

@@ -27,6 +27,8 @@ describe('judgeTourModel', () => {
       expect(step.tag.length).toBeGreaterThan(0)
       expect(step.summary.length).toBeGreaterThan(0)
       expect(step.highlights.length).toBe(3)
+      expect(step.diagram.stages.length).toBe(4)
+      expect(step.diagram.caption.length).toBeGreaterThan(0)
     })
   })
 
@@ -53,6 +55,7 @@ describe('judgeTourModel', () => {
     // Step 1: Town - no side panel
     expect(TOUR_STEPS[0].target.panel).toBe('none')
     expect(TOUR_STEPS[0].target.selectAvatar).toBe(false)
+    expect(TOUR_STEPS[0].action?.id).toBe('demo_rebalance')
 
     // Step 2: Character panel - opens avatar selection
     expect(TOUR_STEPS[1].target.panel).toBe('none')
@@ -61,8 +64,9 @@ describe('judgeTourModel', () => {
     // Step 3: Leaderboard panel
     expect(TOUR_STEPS[2].target.panel).toBe('leaderboard')
 
-    // Step 4: Marketplace panel
+    // Step 4: Marketplace panel with clone action
     expect(TOUR_STEPS[3].target.panel).toBe('marketplace')
+    expect(TOUR_STEPS[3].action?.id).toBe('demo_clone')
 
     // Step 5: Vault safety summary
     expect(TOUR_STEPS[4].target.panel).toBe('none')
