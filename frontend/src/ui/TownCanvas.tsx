@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createGame } from '../game/createGame'
 import type { LandmarkId } from '../game/medinaLayout'
 import { townBus, type AvatarMoved } from '../game/townBus'
-import { getAvatars, getVillageHistory, getVillages } from '../lib/api'
+import { getAvatars, getVillageHistory, getVillages, type AvatarSummary, type Village } from '../lib/api'
 import { connectLiveEvents, type LiveEvent } from '../lib/liveEvents'
 
 /** F2.3: the sparkline covers 7 days. */
@@ -19,6 +19,10 @@ interface TownCanvasProps {
   onOpenArena?: () => void
   /** A landmark building was clicked: the Souk or the Hall of Fame. */
   onOpenLandmark?: (landmark: LandmarkId) => void
+  /** The villages were loaded or a live APY update arrived (for the Hud and the news strip). */
+  onVillages?: (villages: Village[]) => void
+  /** The character list was (re)loaded. */
+  onAvatars?: (avatars: AvatarSummary[]) => void
   /** Every live event, so open panels can refresh (F8.5). */
   onLiveEvent: (event: LiveEvent) => void
 }
@@ -40,18 +44,29 @@ interface TownCanvasProps {
  * unmount ─> close /ws, destroy the game
  * ```
  */
-export function TownCanvas({ onSelect, onOpenArena, onOpenLandmark, onLiveEvent }: TownCanvasProps) {
+export function TownCanvas({
+  onSelect,
+  onOpenArena,
+  onOpenLandmark,
+  onVillages,
+  onAvatars,
+  onLiveEvent,
+}: TownCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   // Callbacks change on every App render; refs keep the effect below mount-only.
   const onSelectRef = useRef(onSelect)
   const onOpenArenaRef = useRef(onOpenArena)
   const onOpenLandmarkRef = useRef(onOpenLandmark)
+  const onVillagesRef = useRef(onVillages)
+  const onAvatarsRef = useRef(onAvatars)
   const onLiveEventRef = useRef(onLiveEvent)
   useEffect(() => {
     onSelectRef.current = onSelect
     onOpenArenaRef.current = onOpenArena
     onOpenLandmarkRef.current = onOpenLandmark
+    onVillagesRef.current = onVillages
+    onAvatarsRef.current = onAvatars
     onLiveEventRef.current = onLiveEvent
   })
 
@@ -74,6 +89,7 @@ export function TownCanvas({ onSelect, onOpenArena, onOpenLandmark, onLiveEvent 
       knownAvatars.clear()
       for (const avatar of avatars) knownAvatars.add(avatar.id)
       townBus.emit('avatars:updated', avatars)
+      onAvatarsRef.current?.(avatars)
     }
     const reloadAvatars = () => {
       loadAvatars().catch((err) => console.warn('reloading avatars failed', err))
@@ -84,6 +100,7 @@ export function TownCanvas({ onSelect, onOpenArena, onOpenLandmark, onLiveEvent 
       if (isUnmounted()) return
       setError(null)
       townBus.emit('villages:updated', villages)
+      onVillagesRef.current?.(villages)
       await loadAvatars()
       // 4 villages = 4 small parallel requests. A failed sparkline only
       // leaves that one village without a line.
@@ -118,6 +135,7 @@ export function TownCanvas({ onSelect, onOpenArena, onOpenLandmark, onLiveEvent 
         case 'apr_update':
           setError(null)
           townBus.emit('villages:updated', event.villages)
+          onVillagesRef.current?.(event.villages)
           break
         case 'avatar_move':
           if (knownAvatars.has(event.avatar_id)) {

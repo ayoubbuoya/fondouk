@@ -11,7 +11,7 @@ import {
   type Decision,
   type EquityPoint,
 } from '../lib/api'
-import { actionLabel, formatUsd } from '../lib/format'
+import { actionLabel, allocationShares, formatUsd } from '../lib/format'
 import { currentAccount, depositToVault, withdrawFromVault } from '../lib/wallet'
 import { LineChart } from './LineChart'
 
@@ -28,6 +28,9 @@ interface AvatarData {
   /** The logged-in account, `null` when nobody is: decides the Start/Pause button. */
   viewer: string | null
 }
+
+/** How many of the 3 risk pips are filled. */
+const RISK_PIPS: Record<AvatarDetail['risk'], number> = { low: 1, medium: 2, high: 3 }
 
 const GOAL_LABELS: Record<AvatarDetail['goal'], string> = {
   steady_income: 'steady income',
@@ -139,11 +142,12 @@ export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
 
   const change = start > 0 ? (Number(avatar.equity_usd) / start - 1) * 100 : 0
   const positions = Object.entries(avatar.positions).sort(([, a], [, b]) => Number(b) - Number(a))
+  const allocation = allocationShares(avatar.positions, avatar.cash_usd)
 
   return (
     <>
       <div className="panel-head">
-        <img className="panel-face" src={faceUrl(avatar.sprite)} alt="" width={38} height={38} />
+        <img className="panel-face" src={faceUrl(avatar.sprite)} alt="" width={52} height={52} />
         <div>
           <h2>{avatar.name}</h2>
           <p className="panel-muted">
@@ -152,11 +156,24 @@ export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
         </div>
         <span className={`badge badge-${avatar.mode}`}>{avatar.mode}</span>
       </div>
+      <p className="sheet-traits">
+        <span className="risk-pips" title={`risk ${avatar.risk}`}>
+          risk
+          {[1, 2, 3].map((pip) => (
+            <span key={pip} className={pip <= RISK_PIPS[avatar.risk] ? 'pip on' : 'pip'} />
+          ))}
+          {avatar.risk}
+        </span>
+        <span className="trait-chip">{GOAL_LABELS[avatar.goal]}</span>
+      </p>
       <p className="panel-muted">
-        risk {avatar.risk} · goal {GOAL_LABELS[avatar.goal]}
-        {avatar.cloned_from && ' · clone'}
-        {!avatar.active && ' · paused'}
-        {avatar.mode === 'real' && !avatar.deposit_tx_hash && ' · awaiting deposit'}
+        {[
+          avatar.cloned_from && 'clone',
+          !avatar.active && 'paused',
+          avatar.mode === 'real' && !avatar.deposit_tx_hash && 'awaiting deposit',
+        ]
+          .filter(Boolean)
+          .join(' · ')}
       </p>
       {avatar.deposit_tx_hash && (
         <p className="panel-muted">
@@ -223,6 +240,18 @@ export function AvatarPanel({ avatarId, refreshKey }: AvatarPanelProps) {
 
       <section>
         <h3>Positions</h3>
+        {allocation.length > 0 && (
+          <div className="allocation-bar" role="img" aria-label="How the money is split">
+            {allocation.map((share, index) => (
+              <span
+                key={share.key}
+                className={share.key === 'cash' ? 'slice slice-cash' : `slice slice-${index % 4}`}
+                style={{ width: `${share.percent}%` }}
+                title={`${share.key} ${share.percent.toFixed(0)}%`}
+              />
+            ))}
+          </div>
+        )}
         <ul className="panel-list">
           {positions.map(([village, usd]) => (
             <li key={village}>

@@ -137,3 +137,40 @@ export function formatTimeAgo(isoString: string, now = new Date()): string {
   const days = Math.floor(hours / 24)
   return `${days}d ago`
 }
+
+const compactUsd = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  notation: 'compact',
+  maximumFractionDigits: 1,
+})
+
+/** `3312456` -> `"$3.3M"`, `98420` -> `"$98.4K"`: for the HUD chips, where space is short. */
+export function formatCompactUsd(amount: number): string {
+  return Number.isFinite(amount) ? compactUsd.format(amount) : '–'
+}
+
+/** One slice of a character's money: a village id, or `"cash"`. */
+export interface AllocationShare {
+  key: string
+  /** 0–100, of the character's total (positions + cash). */
+  percent: number
+}
+
+/**
+ * How a character's money is split, for the allocation bar. Villages come
+ * first, largest first; cash is always last. Empty slices are left out, and
+ * a character with no money at all gives `[]`.
+ */
+export function allocationShares(positions: Record<string, string>, cashUsd: string): AllocationShare[] {
+  const toAmount = (value: string) => {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+  }
+  const villages = Object.entries(positions)
+    .map(([key, usd]) => ({ key, usd: toAmount(usd) }))
+    .sort((a, b) => b.usd - a.usd)
+  const slices = [...villages, { key: 'cash', usd: toAmount(cashUsd) }].filter((slice) => slice.usd > 0)
+  const total = slices.reduce((sum, slice) => sum + slice.usd, 0)
+  return slices.map((slice) => ({ key: slice.key, percent: (slice.usd / total) * 100 }))
+}

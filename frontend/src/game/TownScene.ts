@@ -70,6 +70,13 @@ const STALE_TINT = 0x8a8a8a
 
 const TEXT_FONT = 'system-ui, sans-serif'
 
+/**
+ * The HUD bar and the news strip float over the top and bottom of the canvas
+ * (`--hud-height` and `--ticker-height` in `index.css`: keep in sync). The
+ * first view fits the town between them, so no district sign starts hidden.
+ */
+const HUD_INSETS = { top: 60, bottom: 36 } as const
+
 const DEPTH_GROUND = 0
 /** Buildings, props and characters share this band, sorted by their feet. */
 const DEPTH_WORLD = 2
@@ -238,12 +245,17 @@ export class TownScene extends Scene {
     const town = toPixels(TOWN)
     const limits = zoomLimits({ w: width, h: height }, WORLD_PIXELS, { w: town.w, h: town.h })
     this.minZoom = limits.min
+    // The zoom that shows the whole town in the part of the canvas no bar covers.
+    const freeHeight = Math.max(1, height - HUD_INSETS.top - HUD_INSETS.bottom)
+    const start = zoomLimits({ w: width, h: freeHeight }, WORLD_PIXELS, { w: town.w, h: town.h }).start
 
     camera.setSize(width, height)
     if (!this.cameraPlaced) {
       this.cameraPlaced = true
-      camera.setZoom(limits.start)
-      camera.centerOn(town.x + town.w / 2, town.y + town.h / 2)
+      camera.setZoom(Math.max(limits.min, start))
+      // Centre the town in the free part: shift by half the difference of the bars.
+      const shift = (HUD_INSETS.top - HUD_INSETS.bottom) / 2 / camera.zoom
+      camera.centerOn(town.x + town.w / 2, town.y + town.h / 2 - shift)
     } else if (camera.zoom < limits.min) {
       camera.setZoom(limits.min)
     }

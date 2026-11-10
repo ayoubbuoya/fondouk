@@ -1,11 +1,38 @@
+/*
+ * Fondouk UI: a game HUD floating over the town ("night souk" theme, D70).
+ *
+ *   town canvas      fills the window (bottom layer)
+ *   .hud             top bar: name, town numbers, wallet
+ *   .dock            left menu
+ *   .ticker          bottom news strip
+ *   .side-panel      floating card on the right
+ *   .intro-backdrop  first-visit card, above everything
+ *
+ * Panels are dark so they stand out from the bright sand, with hard 2px
+ * borders and no blur: pixel-art neighbours look wrong next to soft glass.
+ */
+
 :root {
-  --bg: #1b1d22;
-  --panel: #262932;
-  --border: #3a3e4a;
-  --text: #e6e6e6;
-  --muted: #9aa0ad;
-  --accent: #e0b04f;
+  /* Surfaces: night indigo. */
+  --bg: #15121f;
+  --panel: #1f1b2e;
+  --panel-raised: #2a2540;
+  --border: #4a4263;
+  /* Text: warm paper on indigo. */
+  --text: #f3e9d2;
+  --muted: #b7aec9;
+  /* Accents: brass, terracotta, teal (the colours of the medina art). */
+  --accent: #e8b45a;
+  --accent-ink: #2a1f0a;
+  --terracotta: #d9603b;
+  --teal: #2e6f6a;
   --error: #ff8a7a;
+  --good: #7bd9a0;
+
+  --font-pixel: 'Pixelify Sans', system-ui, sans-serif;
+  /* Heights of the bars the floating layers must stay clear of. */
+  --hud-height: 60px;
+  --ticker-height: 36px;
 
   font: 15px/1.4 system-ui, 'Segoe UI', Roboto, sans-serif;
   color: var(--text);
@@ -16,89 +43,19 @@ body {
   margin: 0;
 }
 
-/* Full-height column: header, then the town takes the rest. */
+/* The town is the bottom layer; every other child floats over it. */
 .app {
-  display: flex;
-  flex-direction: column;
+  position: relative;
   height: 100svh;
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 10px 20px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
-}
-
-.header-title {
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
-}
-
-.header-title h1 {
-  margin: 0;
-  font-size: 22px;
-  color: var(--accent);
-}
-
-.header-note {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.header-wallet {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.header-account {
-  font-family: ui-monospace, Consolas, monospace;
-}
-
-.header-error {
-  color: var(--error);
-  font-size: 13px;
-}
-
-button {
-  font: inherit;
-  padding: 6px 14px;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--accent);
-  cursor: pointer;
-}
-
-button:hover:not(:disabled) {
-  background: var(--accent);
-  color: var(--bg);
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
-
-.app-main {
-  flex: 1;
-  min-height: 0;
-  display: flex;
+  overflow: hidden;
 }
 
 .town {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  height: 100%;
+  position: absolute;
+  inset: 0;
 }
 
-/* Phaser's Scale.FIT sizes the canvas to this box. */
+/* Phaser's Scale.RESIZE sizes the canvas to this box. */
 .town-canvas {
   width: 100%;
   height: 100%;
@@ -106,27 +63,375 @@ button:disabled {
 
 .town-error {
   position: absolute;
-  top: 16px;
+  top: calc(var(--hud-height) + 16px);
   left: 50%;
   transform: translateX(-50%);
   margin: 0;
   padding: 8px 14px;
   background: var(--panel);
-  border: 1px solid var(--error);
-  border-radius: 6px;
+  border: 2px solid var(--error);
+  border-radius: 4px;
   color: var(--error);
+  z-index: 5;
 }
 
-/* ---- side panel (F8.3, F8.4) ---- */
+/* ---- buttons ---- */
+
+button {
+  font: inherit;
+  padding: 6px 14px;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+/* The one filled button of a group: the main thing to do. */
+button.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #f3c877;
+}
+
+/* ---- hud (top bar) ---- */
+
+.hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  min-height: var(--hud-height);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 16px;
+  background: var(--panel);
+  border-bottom: 2px solid var(--accent);
+}
+
+.hud-brand {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.hud-brand h1 {
+  margin: 0;
+  font: 600 26px/1 var(--font-pixel);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.hud-tagline {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.hud-stats {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.hud-stat {
+  display: flex;
+  flex-direction: column;
+  padding: 3px 10px;
+  background: var(--panel-raised);
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.hud-stat-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.hud-stat-value {
+  font: 600 17px/1.15 var(--font-pixel);
+  color: var(--text);
+}
+
+.hud-wallet {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.header-account {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+}
+
+.header-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.header-error {
+  color: var(--error);
+  font-size: 13px;
+}
+
+.header-success {
+  color: var(--good);
+  font-size: 13px;
+}
+
+/* Narrow windows: the numbers go first, the town and the menus stay usable. */
+@media (max-width: 1000px) {
+  .hud-stats,
+  .hud-tagline {
+    display: none;
+  }
+}
+
+/* ---- dock (left menu) ---- */
+
+.dock {
+  position: absolute;
+  top: calc(var(--hud-height) + 14px);
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dock-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: 62px;
+  padding: 7px 0 5px;
+  background: var(--panel);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.dock-item.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.dock-icon {
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.dock-label {
+  font: 400 13px/1.1 var(--font-pixel);
+}
+
+/* ---- ticker (bottom news strip) ---- */
+
+.ticker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  height: var(--ticker-height);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--panel);
+  border-top: 2px solid var(--accent);
+  overflow: hidden;
+}
+
+.ticker-title {
+  flex-shrink: 0;
+  font: 600 13px/1 var(--font-pixel);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+.ticker-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ticker-lines {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.ticker-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 10px;
+  border-width: 0 0 0 3px;
+  border-radius: 0;
+  border-color: var(--border);
+  background: var(--panel-raised);
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+  animation: tickerIn 0.3s ease-out;
+}
+
+.ticker-line:hover:not(:disabled) {
+  background: var(--border);
+  color: var(--text);
+}
+
+.ticker-line time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ticker-move {
+  border-color: var(--good);
+}
+
+.ticker-blocked {
+  border-color: var(--terracotta);
+}
+
+.ticker-say {
+  border-color: var(--accent);
+}
+
+@keyframes tickerIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---- intro card (first visit) ---- */
+
+.intro-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(21, 18, 31, 0.72);
+}
+
+.intro-card {
+  width: 480px;
+  max-width: 100%;
+  padding: 24px 26px;
+  background: var(--panel);
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.45);
+  text-align: center;
+}
+
+.intro-kicker {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.intro-card h2 {
+  margin: 0 0 12px;
+  font: 600 32px/1.1 var(--font-pixel);
+  color: var(--accent);
+}
+
+.intro-text {
+  margin: 0 0 18px;
+  line-height: 1.55;
+}
+
+.intro-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.intro-note {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-line,
+  .judge-tour-card {
+    animation: none;
+  }
+}
+
+/* ---- side panel: a card floating over the right of the town (F8.3, F8.4) ---- */
 
 .side-panel {
-  position: relative;
-  width: 360px;
-  flex-shrink: 0;
+  position: absolute;
+  top: calc(var(--hud-height) + 14px);
+  right: 12px;
+  bottom: calc(var(--ticker-height) + 12px);
+  z-index: 20;
+  width: 372px;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
   overflow-y: auto;
-  padding: 16px 18px 24px;
+  padding: 16px 18px 22px;
   background: var(--panel);
-  border-left: 1px solid var(--border);
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.4);
 }
 
 .side-panel-close {
@@ -142,7 +447,7 @@ button:disabled {
 
 .side-panel h2 {
   margin: 0;
-  font-size: 19px;
+  font: 600 22px/1.15 var(--font-pixel);
 }
 
 .side-panel h3 {
@@ -166,8 +471,9 @@ button:disabled {
 
 .panel-face {
   image-rendering: pixelated;
-  border-radius: 6px;
-  background: var(--bg);
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  background: var(--panel-raised);
 }
 
 .panel-muted {
@@ -181,12 +487,11 @@ button:disabled {
 }
 
 .panel-big {
-  font-size: 22px;
-  font-weight: 600;
+  font: 600 26px/1.2 var(--font-pixel);
 }
 
 .up {
-  color: #7fd17f;
+  color: var(--good);
   font-size: 15px;
 }
 
@@ -203,7 +508,7 @@ button:disabled {
 /* Mode badge: sim and real always look different (data source labels). */
 .badge {
   padding: 1px 7px;
-  border-radius: 10px;
+  border-radius: 3px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -211,8 +516,8 @@ button:disabled {
 }
 
 .badge-sim {
-  background: #3b5a8a;
-  color: #dbe7ff;
+  background: var(--teal);
+  color: #d9f5f0;
 }
 
 .badge-real {
@@ -270,7 +575,7 @@ button:disabled {
 }
 
 .notice-ok {
-  border-color: #7fd17f;
+  border-color: var(--good);
 }
 
 .notice-error {
@@ -449,7 +754,7 @@ button.secondary {
 /* ---- leaderboard (SPEC F10) ---- */
 
 .side-panel.side-panel-wide {
-  width: min(920px, 94vw);
+  width: min(980px, calc(100vw - 24px));
 }
 
 .panel-subhead {
@@ -710,7 +1015,7 @@ button.secondary {
 
 .arena-message-bubble {
   flex: 1;
-  background: var(--panel-bg);
+  background: var(--panel-raised);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 12px;
@@ -752,23 +1057,6 @@ button.secondary {
 
 /* ---- Judge Tour (SPEC F12.2) ---- */
 
-.header-tour-btn {
-  background: rgba(224, 176, 79, 0.15);
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  transition: all 0.15s ease;
-}
-
-.header-tour-btn:hover {
-  background: var(--accent);
-  color: var(--bg);
-  box-shadow: 0 0 12px rgba(224, 176, 79, 0.4);
-}
-
 .judge-tour-backdrop {
   position: fixed;
   inset: 0;
@@ -777,17 +1065,17 @@ button.secondary {
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
-  padding: 24px;
+  padding: 24px 24px calc(var(--ticker-height) + 16px) 92px;
 }
 
 .judge-tour-card {
   pointer-events: auto;
   width: 440px;
   max-width: calc(100vw - 48px);
-  background: #20232b;
-  border: 1px solid var(--accent);
-  border-radius: 12px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.7);
+  background: var(--panel);
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.45);
   padding: 18px 20px;
   display: flex;
   flex-direction: column;
@@ -968,5 +1256,68 @@ button.secondary {
   border-color: var(--muted);
 }
 
+/* ---- character sheet (the avatar panel's header and allocation bar) ---- */
 
+.sheet-traits {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0 4px;
+  font-size: 13px;
+}
 
+.risk-pips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.pip {
+  width: 8px;
+  height: 14px;
+  border: 2px solid var(--border);
+  box-sizing: border-box;
+}
+
+.pip.on {
+  background: var(--terracotta);
+  border-color: var(--terracotta);
+}
+
+.trait-chip {
+  padding: 1px 8px;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+}
+
+/* One slice per village, largest first; cash is the dull last slice. */
+.allocation-bar {
+  display: flex;
+  height: 12px;
+  margin: 6px 0 8px;
+  border: 2px solid var(--border);
+  background: var(--bg);
+}
+
+.slice-0 {
+  background: var(--terracotta);
+}
+
+.slice-1 {
+  background: var(--accent);
+}
+
+.slice-2 {
+  background: #5fb3ac;
+}
+
+.slice-3 {
+  background: #9a86d6;
+}
+
+.slice-cash {
+  background: var(--border);
+}

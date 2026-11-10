@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import {
   actionLabel,
+  allocationShares,
   formatAge,
   formatApy,
+  formatCompactUsd,
   formatDrawdown,
   formatNear,
   formatPercent,
@@ -12,6 +14,40 @@ import {
   staleLabel,
   totalApy,
 } from './format'
+
+describe('allocationShares', () => {
+  it('lists villages largest first, then cash, and sums to 100', () => {
+    const shares = allocationShares({ small: '100', big: '600' }, '300')
+    expect(shares.map((share) => share.key)).toEqual(['big', 'small', 'cash'])
+    expect(shares.map((share) => share.percent)).toEqual([60, 10, 30])
+    expect(shares.reduce((sum, share) => sum + share.percent, 0)).toBeCloseTo(100)
+  })
+
+  it('is one full cash slice for an all-cash character', () => {
+    expect(allocationShares({}, '10000')).toEqual([{ key: 'cash', percent: 100 }])
+  })
+
+  it('leaves out empty slices', () => {
+    expect(allocationShares({ a: '50', b: '0' }, '0')).toEqual([{ key: 'a', percent: 100 }])
+  })
+
+  it('is empty when the character has no money or the values are broken', () => {
+    expect(allocationShares({}, '0')).toEqual([])
+    expect(allocationShares({ a: 'oops' }, '')).toEqual([])
+  })
+})
+
+describe('formatCompactUsd', () => {
+  it('shortens large amounts', () => {
+    expect(formatCompactUsd(3_312_456)).toBe('$3.3M')
+    expect(formatCompactUsd(98_420)).toBe('$98.4K')
+    expect(formatCompactUsd(0)).toBe('$0')
+  })
+
+  it('shows a dash for a broken number', () => {
+    expect(formatCompactUsd(Number.NaN)).toBe('–')
+  })
+})
 
 describe('totalApy', () => {
   it('adds base and reward APY from decimal strings', () => {
