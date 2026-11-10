@@ -117,7 +117,12 @@ Fondouk turns yield strategies into living characters in a town.
 
 ## 8. Status
 
-Building. Docs written on 23 Oct 2026; product code started on 1 Nov 2026. Current progress is in `HANDOFF.md` section 1.
+**Complete & deployed on testnet (10 Nov 2026).** Days 1 to 12 fully built:
+- Smart contracts deployed to testnet (`vault.fondouk.testnet`, `marketplace.fondouk.testnet`, `test_token.fondouk.testnet`) with 100% test coverage.
+- Backend modular monolith running live DefiLlama indexer, agent tick loop, and WebSocket events.
+- 10 diverse demo avatars seeded and ticking live (`scripts/seed_demo.sql`).
+- Frontend features live town map, character and village side panels, Social Arena (`ArenaPanel`), 7d/30d Leaderboard (`LeaderboardPanel`), Clone Marketplace, create-avatar wizard, and 5-step Judge Tour (`JudgeTour`).
+- Detailed progress and decisions are logged in `HANDOFF.md`.
 
 ## 9. Related documents
 

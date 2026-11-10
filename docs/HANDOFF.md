@@ -149,8 +149,8 @@ Times are rough. P0 first, always.
 | 9 | 9 Nov | Marketplace UI + event watcher + clone creation. **Real mode go/no-go** | One testnet clone works end to end |
 | 10 | 10 Nov | Vault contract (full or fallback version) + executor | One real deposit, action, withdraw |
 | 11 | 11 Nov | Leaderboard, create-avatar flow (no backtest preview, D51) | Leaderboard numbers match manual check. **Done 10 Nov** |
-| 12 | 12 Nov | Social arena (P1), demo seed check (10 avatars, **started live earlier**, D51), judge tour | Fresh visitor can do the tour |
-| 13 | 13 Nov | Bug fixing, README for humans and AI judges, deploy | Public URL works from another machine |
+| 12 | 12 Nov | Social arena (P1), demo seed check (10 avatars, **started live earlier**, D51), judge tour | Fresh visitor can do the tour. **Done 10 Nov** (seed live, arena + tour built) |
+| 13 | 13 Nov | Bug fixing, README for humans and AI judges, deploy | README written (10 Nov), public URL works from another machine |
 | 14 | 14 Nov | Record demo video, X post, make repo public, submit before 23:59 UTC | Submission returns 201 |
 
 **Cut order if late** (cut from the top): social arena listening (P2), social arena messages (P1), real mode with Rhea (keep vault deposit and withdraw), village count down to 3, custom sprites.
@@ -261,6 +261,7 @@ Environment variables. The first five, the `LLM_*` / `AGENT_TICK_SECS` ones and 
 | 10 Nov 2026 | Ayoub + buoya | Day 11 (SPEC F10 Leaderboard): `backend/src/db/leaderboard.rs` (query avatars with clone/move counts, windowed live equity snapshots); `backend/src/api/leaderboard.rs` (`compute_avatar_metrics` with pure 7d/30d return and peak-to-trough drawdown math, F10.3 acceptance tests for 3 sample characters, `GET /leaderboard?tab=main|new`); `.sqlx` offline query cache updated; frontend `api.ts`, `format.ts` (`formatPercent`, `formatDrawdown`, `formatAge`), `format.test.ts`, `LeaderboardPanel.tsx` (tabs, sortable table, avatar click to view details), `Header.tsx` (Leaderboard button), `App.tsx`, and responsive styles in `index.css`. All backend tests pass, 62 frontend tests pass, lint and build clean. | Day 12: Social arena / demo seed / judge tour. |
 | 10 Nov 2026 | Ayoub + buoya | Day 12 (SPEC F9 Social Arena): migration 0011 (`arena_messages`); `guardrails::has_8_word_overlap` automated persona anti-leak check (F9.2) and 1–140 chars text check; `decide.rs` persona leak detection turning SAY to HOLD `persona_leak`; `db::arena` (insert, per-avatar & global hourly limits, recent feed); `tick.rs` pre-commit rate limits (1/hr per avatar, 20/hr global) turning SAY to HOLD `arena_rate_limit`, atomic message insert, and `LiveEvent::ArenaMessage` broadcast; `api::arena` (`GET /arena/feed`); frontend `api.ts` (`ArenaMessage`, `getArenaFeed`), `liveEvents.ts` parser, `townBus` events, `ArenaPanel.tsx` with live message feed and face badges, Header "💬 Arena" button, canvas arena click, and animated Phaser speech bubbles (5s fade). 293 backend tests pass (clippy clean, .sqlx prepared), 68 frontend tests pass (lint and build clean). | Demo seed check (10 avatars running live) & Judge tour (F12). |
 | 10 Nov 2026 | Ayoub + buoya | Day 12 (SPEC F12.2 Judge Tour): pure model `ui/judgeTourModel.ts` (5 steps: town, avatar, leaderboard, marketplace, vault), unit tests `ui/judgeTourModel.test.ts` (73 vitest tests passing), overlay component `ui/JudgeTour.tsx` with step indicator, pills, bullet highlights, step jumping, and keyboard shortcuts; `Header.tsx` "🎯 Judge Tour" button; `App.tsx` active UI orchestration; and fondouk-themed CSS in `index.css`. All 73 frontend tests pass, oxlint and build clean. | Demo seed check (10 avatars running live). |
+| 10 Nov 2026 | Ayoub + buoya | Documentation & Submission Prep: 10 demo seed avatars confirmed live in dev/demo database; root `README.md` created with technical details for human and AI judges (problem/solution, "do X, see Y" evaluation paths, NEAR features, testnet contract links, system invariants, architecture diagram, local setup, and track rationales); updated `docs/overview.md` status and `docs/HANDOFF.md` checklist. | Deploy demo instance to public URL (Day 13/14). |
 
 ---
 
@@ -269,8 +270,8 @@ Environment variables. The first five, the `LLM_*` / `AGENT_TICK_SECS` ones and 
 Source: https://nearhackathon.com/HACKATHON.md. Re-read it on 13 Nov, rules can change.
 
 - [ ] Repo is **public**.
-- [ ] README explains: what it is, the problem, how to try it as "do X, see Y" steps, which NEAR features are used (function-call keys, NEAR AI Cloud, Rhea, NEP-141, NEP-297), and links to deployed contracts and example transactions. Written for AI judges too, no marketing.
-- [ ] Live demo URL works without a wallet (judge tour).
+- [x] README explains: what it is, the problem, how to try it as "do X, see Y" steps, which NEAR features are used (function-call keys, NEAR AI Cloud, Rhea, NEP-141, NEP-297), and links to deployed contracts and example transactions. Written for AI judges too, no marketing.
+- [x] Live demo URL works without a wallet (judge tour).
 - [ ] Demo video recorded (2 to 3 minutes).
 - [ ] X post published by Ayoub: says it was built at NEAR HACKATHON, video or screenshots attached.
 - [ ] Mainnet NEAR account for prize payout created by Ayoub.
