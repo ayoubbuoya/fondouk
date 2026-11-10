@@ -33,6 +33,40 @@ export type SpriteId = (typeof SPRITES)[number]
 /** Shown for any id the frontend does not know (older or newer data). */
 export const DEFAULT_SPRITE: SpriteId = 'boy'
 
+/**
+ * The 3D bodies of the 3D town (`game3d/`, D76). There are fewer models than
+ * sprite ids, so some ids share a model and differ by colour.
+ * Files: `public/assets/models/characters/<model>.glb` (KayKit Adventurers).
+ */
+export const CHARACTER_MODELS = ['knight', 'barbarian', 'mage', 'rogue', 'rogue_hooded'] as const
+
+export type CharacterModel = (typeof CHARACTER_MODELS)[number]
+
+export interface CharacterLook {
+  model: CharacterModel
+  /**
+   * Multiplied into the model's colours (white = unchanged), and the robe
+   * colour of the stand-in figure shown while a model is missing or loading.
+   */
+  tint: number
+}
+
+/** The 3D look of each sprite id. Two ids on one model always have different tints. */
+export const SPRITE_LOOKS: Record<SpriteId, CharacterLook> = {
+  boy: { model: 'rogue', tint: 0xffffff },
+  princess: { model: 'mage', tint: 0xffc4dd },
+  old_man: { model: 'mage', tint: 0xffffff },
+  hunter: { model: 'rogue_hooded', tint: 0xffffff },
+  monk: { model: 'barbarian', tint: 0xffd9a0 },
+  noble: { model: 'knight', tint: 0xffe08a },
+  samurai: { model: 'knight', tint: 0xffffff },
+  ninja_blue: { model: 'rogue_hooded', tint: 0x8fb6ff },
+}
+
+export function modelUrl(model: CharacterModel): string {
+  return `/assets/models/characters/${model}.glb`
+}
+
 export type Direction = 'down' | 'up' | 'left' | 'right'
 
 const DIRECTION_COLUMN: Record<Direction, number> = { down: 0, up: 1, left: 2, right: 3 }

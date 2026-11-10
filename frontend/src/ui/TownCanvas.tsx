@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createGame } from '../game/createGame'
 import type { LandmarkId } from '../game/medinaLayout'
 import { townBus, type AvatarMilestone, type AvatarMoved } from '../game/townBus'
+import { createTown3d } from '../game3d/createTown3d'
 import { getAvatars, getVillageHistory, getVillages, type AvatarSummary, type Village } from '../lib/api'
 import { connectLiveEvents, type LiveEvent } from '../lib/liveEvents'
 import { celebrationText } from '../lib/progression'
@@ -29,7 +30,30 @@ interface TownCanvasProps {
 }
 
 /**
- * Hosts the Phaser town and feeds it data. Only this component and the scene
+ * The 3D town (D76) is opt-in while it is being reviewed: add `?view=3d` to
+ * the address. Without it the 2D Phaser town runs, unchanged.
+ */
+function wants3d(): boolean {
+  return new URLSearchParams(window.location.search).get('view') === '3d'
+}
+
+/**
+ * Starts the 2D or the 3D town in `container`. Both speak the same `townBus`
+ * events, so the rest of this component does not care which one runs.
+ *
+ * @returns the function that destroys it
+ */
+function startTown(container: HTMLElement): () => void {
+  if (wants3d()) {
+    const town = createTown3d(container)
+    return () => town.destroy()
+  }
+  const game = createGame(container)
+  return () => game.destroy(true)
+}
+
+/**
+ * Hosts the town (2D Phaser, or 3D with `?view=3d`) and feeds it data. Only this component and the scene
  * use `townBus`; the rest of the app gets plain callbacks.
  *
  * ```text
@@ -77,8 +101,8 @@ export function TownCanvas({
     if (!container) return
 
     // React StrictMode (dev) runs this effect twice: the cleanup below
-    // destroys the first game, so only one canvas remains.
-    const game = createGame(container)
+    // destroys the first town, so only one canvas remains.
+    const destroyTown = startTown(container)
     // Aborted on unmount, so late answers are not drawn into a destroyed game.
     const unmounted = new AbortController()
     const isUnmounted = () => unmounted.signal.aborted
@@ -177,7 +201,7 @@ export function TownCanvas({
       townBus.off('landmark:selected', onLandmarkSelected)
       townBus.off('avatars:reload', reloadAvatars)
       stopLiveEvents()
-      game.destroy(true)
+      destroyTown()
     }
   }, [])
 

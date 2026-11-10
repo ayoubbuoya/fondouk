@@ -57,8 +57,169 @@ body {
 
 /* Phaser's Scale.RESIZE sizes the canvas to this box. */
 .town-canvas {
+  /* The 3D town's label layer is positioned against this box. */
+  position: relative;
   width: 100%;
   height: 100%;
+}
+
+/* ---- 3D town (game3d/, D76): the canvas and the HTML labels over it ---- */
+
+.town3d-canvas {
+  display: block;
+  cursor: grab;
+  /* The camera controls handle touch gestures; the page must not scroll. */
+  touch-action: none;
+}
+
+/* Covers the canvas but lets the mouse through, so dragging still moves the
+   camera. Only the labels themselves take clicks. */
+.town3d-labels {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.town3d-sign,
+.town3d-landmark,
+.town3d-tag {
+  pointer-events: auto;
+  cursor: pointer;
+  border: 0;
+  background: none;
+  color: #fff;
+  font-family: var(--font-pixel);
+  /* A dark edge keeps white text readable on sand and on plaster. */
+  text-shadow:
+    0 0 3px #1d1d1d,
+    0 1px 2px #1d1d1d,
+    0 0 6px #1d1d1d;
+  white-space: nowrap;
+}
+
+.town3d-sign {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 8px 6px;
+  background: rgb(21 18 31 / 62%);
+  border: 1px solid rgb(232 180 90 / 55%);
+  border-radius: 6px;
+}
+
+.town3d-sign:hover,
+.town3d-landmark:hover,
+.town3d-tag:hover {
+  color: var(--accent);
+}
+
+.town3d-sign-apy {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.town3d-sign-name {
+  font-size: 13px;
+}
+
+.town3d-sign-stale {
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #3a3a3acc;
+  color: #ffe08a;
+  font-size: 12px;
+}
+
+.town3d-sign.is-stale .town3d-sign-apy {
+  color: #d0d0d0;
+}
+
+.town3d-sign-spark polyline {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.town3d-landmark {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* One character's stack: bubble above the name tag. `--tier` lifts the whole
+   stack so neighbours in a row form a staircase (walkPath.ts layoutTagTiers). */
+.town3d-avatar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding-bottom: calc(var(--tier, 0) * 13px);
+}
+
+.town3d-tag {
+  padding: 0 2px;
+  font-size: 12px;
+}
+
+.town3d-bubble {
+  max-width: 150px;
+  padding: 5px 8px;
+  background: rgb(24 24 27 / 92%);
+  border: 1.5px solid #60a5fa;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 11px;
+  text-align: center;
+  white-space: normal;
+  /* Fade in, stay about 5 s, fade out; labels.ts removes it when this ends. */
+  animation: town3d-bubble 5.6s ease-out forwards;
+}
+
+@keyframes town3d-bubble {
+  0% {
+    opacity: 0;
+  }
+
+  4%,
+  93% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+/* "LEVEL UP!": starts just above the stack, floats up and fades. */
+.town3d-celebration {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  color: var(--accent);
+  font-family: var(--font-pixel);
+  font-size: 14px;
+  font-weight: 700;
+  text-shadow:
+    0 0 3px #1d1d1d,
+    0 1px 2px #1d1d1d;
+  white-space: nowrap;
+  animation: town3d-celebration 2.2s ease-in forwards;
+}
+
+@keyframes town3d-celebration {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(-50%, -26px);
+  }
 }
 
 .town-error {
