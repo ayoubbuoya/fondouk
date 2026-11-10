@@ -105,10 +105,17 @@ export class CharacterBody {
   /** Drives the stand-in's little hop while it walks. */
   private stride = 0
 
+  /**
+   * Settles once the model is in place, or once it failed and the stand-in
+   * stays. Never rejects. Only the portrait renderer waits for it; the town
+   * just shows the stand-in until the model arrives.
+   */
+  readonly ready: Promise<void>
+
   constructor(sprite: SpriteId) {
     const look = SPRITE_LOOKS[sprite]
     this.buildStandIn(look.tint)
-    void loadModel(look.model).then((gltf) => {
+    this.ready = loadModel(look.model).then((gltf) => {
       if (gltf && !this.disposed) this.useModel(gltf, look.tint)
     })
   }

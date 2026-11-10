@@ -2178,3 +2178,10 @@ button.secondary {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* 3D headshots (face3d.png, D76) are smooth renders, not pixel art: undo the
+   `image-rendering: pixelated` the panels set on faces. `!important` because
+   six different face rules set it, some with higher specificity. */
+img[src$='/face3d.png'] {
+  image-rendering: auto !important;
+}

@@ -36,6 +36,10 @@ Only the files we use are copied, renamed (HANDOFF D52, D54):
   | `models/characters/rogue.glb` | `Characters/gltf/Rogue.glb` |
   | `models/characters/rogue_hooded.glb` | `Characters/gltf/Rogue_Hooded.glb` |
 
+- Portraits: `characters/<id>/face3d.png` (128 × 128) are rendered by us from
+  the KayKit models above (`src/game3d/portraitStudio.ts`), so they are CC0
+  derivatives of that pack.
+
 ## 2D town
 
 Character ids: `boy` = Boy, `princess` = Princess, `old_man` = OldMan,

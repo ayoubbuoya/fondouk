@@ -17,6 +17,8 @@
  * ```
  */
 
+import { isTownView3d } from '../lib/townView'
+
 export const SPRITES = [
   'boy',
   'princess',
@@ -92,9 +94,15 @@ export function walkSheetUrl(sprite: SpriteId): string {
   return `/assets/characters/${sprite}/walk.png`
 }
 
-/** The 38×38 portrait used by the side panel. */
-export function faceUrl(sprite: string): string {
-  return `/assets/characters/${knownSprite(sprite)}/face.png`
+/**
+ * The portrait used by the panels: the 38×38 pixel face in the 2D town, or
+ * the 128×128 3D headshot in the 3D town (`game3d/portraitStudio.ts`), so a
+ * face always matches the character on the map.
+ *
+ * @param view3d defaults to the page's `?view=3d` (`lib/townView.ts`)
+ */
+export function faceUrl(sprite: string, view3d: boolean = isTownView3d()): string {
+  return `/assets/characters/${knownSprite(sprite)}/${view3d ? 'face3d' : 'face'}.png`
 }
 
 /** The 4 frames of walking in one direction, top to bottom of its column. */

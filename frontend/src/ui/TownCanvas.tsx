@@ -4,6 +4,7 @@ import { createGame } from '../game/createGame'
 import type { LandmarkId } from '../game/medinaLayout'
 import { townBus, type AvatarMilestone, type AvatarMoved } from '../game/townBus'
 import { createTown3d } from '../game3d/createTown3d'
+import { isTownView3d } from '../lib/townView'
 import { getAvatars, getVillageHistory, getVillages, type AvatarSummary, type Village } from '../lib/api'
 import { connectLiveEvents, type LiveEvent } from '../lib/liveEvents'
 import { celebrationText } from '../lib/progression'
@@ -30,21 +31,14 @@ interface TownCanvasProps {
 }
 
 /**
- * The 3D town (D76) is opt-in while it is being reviewed: add `?view=3d` to
- * the address. Without it the 2D Phaser town runs, unchanged.
- */
-function wants3d(): boolean {
-  return new URLSearchParams(window.location.search).get('view') === '3d'
-}
-
-/**
  * Starts the 2D or the 3D town in `container`. Both speak the same `townBus`
  * events, so the rest of this component does not care which one runs.
  *
  * @returns the function that destroys it
  */
 function startTown(container: HTMLElement): () => void {
-  if (wants3d()) {
+  // The 3D town (D76) is opt-in with `?view=3d`; without it the 2D town runs, unchanged.
+  if (isTownView3d()) {
     const town = createTown3d(container)
     return () => town.destroy()
   }
