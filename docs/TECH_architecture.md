@@ -20,7 +20,7 @@ Version 0.1, 23 Oct 2026. Read `SPEC.md` first for what we build. This file is a
 flowchart LR
   subgraph Browser
     UI[React UI<br/>panels, marketplace, leaderboard]
-    GAME[Phaser 4 town canvas]
+    GAME[3D town canvas, three.js]
     WALLET[NEAR Connect wallet]
   end
 
@@ -74,8 +74,8 @@ Versions below were checked on 23 Oct 2026. "Latest found" means the newest vers
 
 | Part | Choice | Version | Status | Why |
 | --- | --- | --- | --- | --- |
-| Game engine | Phaser 4 | 4.2.1 | Verified | Full-window canvas (`Scale.RESIZE`), animated sprites, speech bubbles, camera zoom. |
-| Map layout | Procedural medina in code (`medinaLayout.ts`, `townMap.ts`) | n/a | Built (D68) | Walled sand medina with districts, gates, landmark buildings, depth-sorted houses. Replaced Tiled. |
+| Game engine | three.js (`three`) | 0.187 | Built (D76, D77) | Full-window 3D canvas, rigged glTF characters, `MapControls` camera, HTML labels via `CSS2DRenderer`. Replaced Phaser 4. |
+| Map layout | Medina layout in code (`medinaLayout.ts`) | n/a | Built (D68) | Walled sand medina with districts, gates, landmark buildings; `game3d/buildings.ts` builds each piece in 3D. Replaced Tiled. |
 | App shell | React 19 + TypeScript + Vite | 8.3.5 / 19.3.1 | Built | Immersive game HUD floating over canvas: `Hud`, `NavDock`, `Ticker`, floating panels. |
 | Wallet | `@hot-labs/near-connect` (direct) | 0.12.0 | Built (D46) | Fast popup login + NEP-413 signing, direct calls without heavy wrapper hooks. |
 | Typography | `@fontsource/pixelify-sans` | 5.3.0 | Built (D71) | Self-hosted pixel font for titles, HUD chips, and numbers; body uses system sans. |
@@ -150,10 +150,11 @@ fondouk/
       api/                  # REST + WebSocket handlers
   frontend/
     src/
-      game/                 # Phaser scenes, sprites, map loading
+      game/                 # medina layout, walk paths, character list, townBus
+      game3d/               # three.js town: buildings, characters, labels, camera
       ui/                   # React panels, forms, leaderboard, marketplace
       lib/                  # api client, wallet
-    public/assets/          # tilesets, sprites, Tiled map json
+    public/assets/          # character models (.glb), portraits, credits
   scripts/                  # data checks, seeding, deploy helpers
 ```
 
@@ -295,16 +296,17 @@ Methods:
 
 ## 8. Frontend
 
-Built across Days 6–12 (`frontend/`): Vite + React 19 + TypeScript, Phaser 4, `@hot-labs/near-connect` (HANDOFF D44–D71). 124 unit tests pass via Vitest.
+Built across Days 6–12 (`frontend/`): Vite + React 19 + TypeScript, three.js, `@hot-labs/near-connect` (HANDOFF D44–D77). 168 unit tests pass via Vitest.
 
 - All REST calls go to `/api/...`; the Vite dev proxy (Vercel rewrite in production) strips `/api` and forwards to the backend, so the session cookie is same-origin (D37, D47). Live events: `/api/ws` in dev, `VITE_WS_URL` in production; the client reconnects after 5 s (D49).
 - `src/lib/`: `api.ts` (typed REST), `wallet.ts` (NEP-413 login), `liveEvents.ts` (`/ws` + `parseLiveEvent`), `format.ts` (risk pips, allocation bar, APY, stale, USD), `ticker.ts` (event aggregation for bottom ticker), `townStats.ts` (summary statistics for HUD chips).
-- `src/game/`: `TownScene.ts`, `townBus.ts`, `medinaLayout.ts` (walled medina district coordinates and landmarks), `townMap.ts` (ground tile procedural generation), `sprites.ts` (sprite whitelist + walk frames), `walkPath.ts` (hub-and-spoke walk routing with dynamic speed to cap walk duration < 4.5s), `cameraZoom.ts` (responsive bounds).
+- `src/game/`: `townBus.ts` (event bus), `medinaLayout.ts` (walled medina district coordinates, landmarks, paving), `sprites.ts` (sprite whitelist, 3D model and tint per id, portrait URL), `walkPath.ts` (hub-and-spoke walk routing with dynamic speed to cap walk duration < 4.5s).
+- `src/game3d/`: `createTown3d.ts` (renderer, lights, camera, clicks, frame loop), `Town3d.ts` (reacts to `townBus`), `buildings.ts` (code-made medina), `characters.ts` (glTF models, idle/walk), `labels.ts` (HTML signs, tags, bubbles), `portraitStudio.ts` (dev tool for the panel headshots), and the pure `coords.ts`, `walker.ts`, `cameraRig.ts`, `sparkline.ts`.
 - `src/ui/`: `Hud.tsx` (top HUD with logo, separated sim/real town stats, faucet, wallet, create avatar button; replaced `Header.tsx`), `NavDock.tsx` (left dock: Tour, Arena, Ranks, Souk), `Ticker.tsx` (bottom scrolling news ticker), `IntroCard.tsx` (first-visit guide), `TownCanvas.tsx`, `SidePanel.tsx`, `AvatarPanel.tsx`, `VillagePanel.tsx`, `ArenaPanel.tsx`, `LeaderboardPanel.tsx`, `MarketplacePanel.tsx`, `CreateAvatarPanel.tsx`, `JudgeTour.tsx`.
-- Art: Ninja Adventure pack, CC0 (D52), in `public/assets/` with `CREDITS.md`. The ground is a tile array built in code (`medinaLayout.ts` and `townMap.ts`, D68): 76×46 world with sand streets, perimeter walls, districts for each village with APY signs, and clickable landmark buildings (Souk = Marketplace, Hall of Fame = Leaderboard, court statue = Arena). Full-window canvas with `Scale.RESIZE`.
-- Sprites: 8 ids (D54), the same list as the backend's `api::avatars::SPRITES`. Each character stands at its `main_village` district. On `avatar_move`, the sprite walks along district streets and the main medina road to its new spot.
+- Art: KayKit Adventurers characters, CC0 (D76), in `public/assets/` with `CREDITS.md`; buildings, wall, props and ground are made in code from `medinaLayout.ts` (D68): 76×46 world with sand streets, perimeter walls, districts for each village with APY signs, and clickable landmark buildings (Souk = Marketplace, Hall of Fame = Leaderboard, court fountain = Arena).
+- Characters: 8 sprite ids (D54), the same list as the backend's `api::avatars::SPRITES`, mapped to 5 KayKit models plus tints. Each character stands at its `main_village` district. On `avatar_move`, it walks along district streets and the main medina road to its new spot.
 - React Game HUD: Floating HUD and NavDock over the medina. Panels float on the right (`SidePanel.tsx`) without squeezing or resizing the canvas.
-- Phaser and React talk through a small event bus: `townBus`, a `Phaser.Events.EventEmitter` (D48). React owns the data and pushes live updates to Phaser; the scene emits user interaction events (`town:ready`, `avatar:selected`, `village:selected`, `landmark:selected`). Only `TownCanvas` and the scene use the bus; `App` manages state and panel views.
+- The 3D town and React talk through a small event bus: `townBus`, a tiny local emitter with `on / off / once / emit` (D48, D77). React owns the data and pushes live updates to the town; the town emits user interaction events (`town:ready`, `avatar:selected`, `village:selected`, `landmark:selected`). Only `TownCanvas`, the town and the Judge Tour use the bus; `App` manages state and panel views.
 
 ---
 

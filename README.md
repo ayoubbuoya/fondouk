@@ -12,7 +12,7 @@ Fondouk is an on-chain AI medina on NEAR Protocol where each character is an aut
 
 | Problem in DeFi & AI Agents Today | How Fondouk Solves It |
 |---|---|
-| **Opaque Black Boxes:** Typical AI yield bots operate behind static dashboards with zero visibility into why moves happen. | **Living Medina:** Agents live in a tiled 2D pixel medina. They walk between yield villages when rebalancing and speak in real-time in the town square. |
+| **Opaque Black Boxes:** Typical AI yield bots operate behind static dashboards with zero visibility into why moves happen. | **Living Medina:** Agents live in a 3D walled medina. They walk between yield villages when rebalancing and speak in real-time in the town square. |
 | **Hallucinations & Risk of Loss:** LLMs are prone to hallucinations, bad arithmetic, or irrational trading spikes if left unrestricted. | **Code Decides:** Deterministic Rust guardrails enforce move size caps, minimum APR thresholds net of swap/gas fees, and cooldowns. The LLM only proposes; code decides. |
 | **Strategy Theft & No Fair Market:** Strategy creators cannot monetize their alpha without leaking their prompt or code. | **Zero-Leak On-Chain Cloning:** Creators list their avatars for an on-chain NEAR fee (90% creator, 10% platform). Buyers receive an autonomous clone that references the strategy config without ever seeing the private prompt text. |
 | **Custody & Security Risks:** Handing full wallet keys to an AI operator invites rug-pulls and unauthorized asset draining. | **Non-Custodial Function-Call Key:** The AI backend holds *only* a restricted function-call access key to call `agent_supply` / `agent_withdraw`. It cannot transfer funds out. Only the wallet owner can withdraw. |
@@ -52,7 +52,7 @@ Judges can explore Fondouk immediately without needing to install anything or co
 1. **Do:** Click on any of the 4 village buildings on the map (e.g. Rhea Lend USDC) or landmark buildings (Souk for Marketplace, Hall of Fame for Leaderboard).
 2. **See:** The Village or Landmark panel opens showing current APY, 7-day sparkline history, and which agents are currently supplying funds there.
 3. **Do:** Click the central court statue on the medina map, or click **"💬 Arena"** in the left `NavDock`.
-4. **See:** The live social feed displays avatars conversing and explaining market moves in real-time. Speech bubbles also float above the avatars in Phaser, and live moves stream in the bottom ticker.
+4. **See:** The live social feed displays avatars conversing and explaining market moves in real-time. Speech bubbles also float above the avatars in the 3D town, and live moves stream in the bottom ticker.
 
 ### Path C: Real Mode On-Chain Vault Deposit & Faucet
 1. **Do:** Connect a NEAR testnet wallet (via `@hot-labs/near-connect`).
@@ -82,10 +82,10 @@ Judges can explore Fondouk immediately without needing to install anything or co
 
 ```mermaid
 flowchart TB
-    subgraph Frontend["Frontend (React 19 + Phaser 4 + Vite)"]
+    subgraph Frontend["Frontend (React 19 + three.js + Vite)"]
         UI["React Game HUD (Hud, NavDock, Ticker, Floating Panels, Wizard, Tour)"]
         Bus["townBus (Event Emitter)"]
-        Engine["Phaser Game (Walled Medina Map, Walking Sprites, Speech Bubbles)"]
+        Engine["3D Town on three.js (Walled Medina, Animated 3D Characters, Speech Bubbles)"]
         Wallet["NEAR Connect (NEP-413 Auth, Contract Calls)"]
         UI <--> Bus
         Engine <--> Bus
@@ -144,9 +144,10 @@ fondouk/
 │   ├── marketplace/           # Strategy clone marketplace contract
 │   ├── test_token/            # NEP-141 tUSDC with faucet
 │   └── vault/                 # Non-custodial avatar funds vault
-├── frontend/                  # React 19 + TypeScript + Phaser 4 + Vite
+├── frontend/                  # React 19 + TypeScript + three.js + Vite
 │   └── src/
-│       ├── game/              # Phaser scene, medina layout, tile ground, walking paths, speech bubbles
+│       ├── game/              # medina layout, walking paths, character list, townBus
+│       ├── game3d/            # 3D town: buildings, characters, labels, camera, portrait renderer
 │       ├── lib/               # NEAR wallet connector, REST API, WebSocket client, ticker, town stats
 │       └── ui/                # Game HUD, NavDock, Ticker, floating panels, wizard, and Judge Tour overlay
 ├── docs/                      # Specification, architecture, and handoff logs
@@ -193,7 +194,7 @@ cd ../test_token && cargo test
 
 ## 8. Hackathon Tracks & Rationale
 
-- **Games With Real Economies (`games` — Primary):** Tiled medina game loop with autonomous NPC residents, player-owned marketplace, and real on-chain assets.
+- **Games With Real Economies (`games` — Primary):** 3D medina game loop with autonomous NPC residents, player-owned marketplace, and real on-chain assets.
 - **Agent Economy (`agents`):** Autonomous economic agents trading yield, rebalancing portfolios, and monetizing strategies through cloning fees.
 - **AI Security & Defense (`security`):** Defense-in-depth architecture: restricted function-call keys, smart contract policy bounds, and deterministic Rust guardrails preventing hallucinated transactions.
 - **Privacy & Private AI (`privacy`):** Zero-leak prompt protection and private inference via NEAR AI Cloud TEE.
@@ -203,5 +204,5 @@ cd ../test_token && cargo test
 
 ## 9. Credits & License
 
-- Ground tiles and character sprite art from the **Ninja Adventure asset pack** (Pixel-boy & AAA, CC0).
+- 3D characters from the **KayKit Adventurers** pack (Kay Lousberg, CC0); buildings and ground are made in code.
 - Open-source under the MIT License.

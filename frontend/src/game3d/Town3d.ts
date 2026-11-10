@@ -1,7 +1,7 @@
 /**
- * What is in the 3D town and how it reacts to data (D76): the 3D twin of
- * `game/TownScene.ts`. Same `townBus` events in, same click events out, so
- * React cannot tell the two apart.
+ * What is in the 3D town and how it reacts to data (D76). Data comes in as
+ * `townBus` events and clicks go out as `townBus` events, so React never
+ * talks to three.js directly.
  *
  * ```text
  *   townBus                         Town3d
@@ -384,7 +384,7 @@ export class Town3d {
     if (moment.done) {
       avatar.walk = undefined
       avatar.body.setWalking(false)
-      // Standing characters face the camera, like the 2D "down" frame.
+      // Standing characters face the camera.
       avatar.body.root.rotation.y = 0
     }
   }

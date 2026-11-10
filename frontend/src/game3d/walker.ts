@@ -2,9 +2,8 @@
  * Where a walking character is at a given moment. Pure, no three.js:
  * unit-tested.
  *
- * `walkPath.ts` gives the corners of a walk; the 2D scene handed them to a
- * Phaser tween. The 3D scene has no tweens, so each frame it asks this
- * function "after `elapsed` seconds, where am I and which way do I look?".
+ * `walkPath.ts` gives the corners of a walk. Each frame, the 3D town asks
+ * this function "after `elapsed` seconds, where am I and which way do I look?".
  *
  * ```text
  *   from ●────────● path[0]

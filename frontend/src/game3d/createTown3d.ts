@@ -1,5 +1,5 @@
 /**
- * Starts the 3D town inside `parent` (D76): the 3D twin of `game/createGame.ts`.
+ * Starts the 3D town inside `parent` (D76, D77).
  *
  * This file is the "stage crew": the renderer, the lights, the camera and
  * its controls, the click detection and the frame loop. What is *on* the
@@ -56,8 +56,8 @@ const SKY = 0xf2c58f
 
 /**
  * The HUD bar and the news strip float over the top and bottom of the canvas
- * (`--hud-height` and `--ticker-height` in `index.css`: keep in sync, as in
- * `TownScene.ts`). The first view fits the town between them.
+ * (`--hud-height` and `--ticker-height` in `index.css`: keep in sync). The
+ * first view fits the town between them.
  */
 const HUD_INSETS = { top: 60, bottom: 36 } as const
 
@@ -206,8 +206,7 @@ export function createTown3d(parent: HTMLElement): Town3dHandle {
       fromTarget: controls.target.clone(),
       fromOffset,
       toTarget: point ? new Vector3(point.x, 0, point.z) : home.target.clone(),
-      // Same viewing angle, closer in; `CameraFocus.zoom` is a 2D camera
-      // number with no meaning here, and no caller sets it.
+      // Same viewing angle, closer in.
       toOffset: point ? fromOffset.clone().setLength(FOCUS_DISTANCE) : home.offset.clone(),
       elapsed: 0,
     }

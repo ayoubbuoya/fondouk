@@ -1,5 +1,5 @@
 /**
- * Pure display helpers for villages and characters. No DOM, no Phaser: unit-tested.
+ * Pure display helpers for villages and characters. No DOM, no three.js: unit-tested.
  */
 
 import type { AgentAction, Village } from './api'

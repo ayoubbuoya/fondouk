@@ -1,6 +1,6 @@
 /**
  * Where each character stands and how it walks (F8.2, TECH §8).
- * Pure, no Phaser: unit-tested.
+ * Pure, no three.js: unit-tested.
  *
  * **Standing.** A character stands at its `main_village` (the village with
  * most of its money), in a small grid on the forecourt below the building's

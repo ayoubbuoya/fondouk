@@ -12,7 +12,7 @@ The approval gate, plan-then-explain workflow, simplicity-first, and end-of-task
 
 Fondouk: an AI town on NEAR where each character is an LLM-driven DeFi agent that moves funds between real yield "villages" (Rhea pools), with an on-chain clone marketplace. Built for NEAR HACKATHON (1–14 Nov 2026, deadline 14 Nov 23:59 UTC).
 
-As of 6 Nov 2026: `backend/` (axum + sqlx + Postgres) has the DefiLlama indexer for 4 villages, paper ledger + cost model, backtest engine (runs the live LLM `decide` with the persona, shown in the create wizard, D63), guardrails, LLM decide pipeline, live agent tick loop, REST API, NEP-413 wallet login and `/ws` live events (Days 1–5). `frontend/` (Vite + React + TypeScript + Phaser 4 + NEAR Connect) shows the tiled town with live APY labels, walking character sprites, avatar and village side panels, a login button, the Marketplace panel and the create-avatar wizard (Days 6–9, D63). `scripts/seed_demo.sql` seeds the 10 demo characters. No contracts yet. The DB design is in `dev-docs/2026-11-02/database-design.md`.
+As of 6 Nov 2026: `backend/` (axum + sqlx + Postgres) has the DefiLlama indexer for 4 villages, paper ledger + cost model, backtest engine (runs the live LLM `decide` with the persona, shown in the create wizard, D63), guardrails, LLM decide pipeline, live agent tick loop, REST API, NEP-413 wallet login and `/ws` live events (Days 1–5). `frontend/` (Vite + React + TypeScript + three.js + NEAR Connect) shows the 3D medina town (D76, D77) with live APY labels, walking 3D characters, avatar and village side panels, a login button, the Marketplace panel and the create-avatar wizard (Days 6–9, D63). `scripts/seed_demo.sql` seeds the 10 demo characters. No contracts yet. The DB design is in `dev-docs/2026-11-02/database-design.md`.
 
 Read in this order: `docs/HANDOFF.md` (current state, decisions D1–D63, unknowns U1–U7, day plan) → `docs/SPEC.md` (features F1–F12, action set, guardrails) → `docs/TECH_architecture.md` (modules, schema, contracts).
 
@@ -31,7 +31,7 @@ cd frontend && npm test && npm run lint && npm run build
 cd contracts/marketplace && cargo near build && cargo test
 ```
 
-Planned layout: `backend/` (one modular-monolith binary: indexer, backtest, sim, agent, executor, events, api), `contracts/marketplace`, `contracts/vault`, `frontend/` (`game/` Phaser, `ui/` React, connected by a small event bus), `scripts/`. Env vars are listed in HANDOFF §5.
+Planned layout: `backend/` (one modular-monolith binary: indexer, backtest, sim, agent, executor, events, api), `contracts/marketplace`, `contracts/vault`, `frontend/` (`game/` layout + `game3d/` three.js town, `ui/` React, connected by a small event bus), `scripts/`. Env vars are listed in HANDOFF §5.
 
 Package versions in TECH_architecture §3 are often marked "verify on setup". Use whatever `cargo add` / `npm install` resolves to, not the doc's version numbers.
 

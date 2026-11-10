@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { createGame } from '../game/createGame'
 import type { LandmarkId } from '../game/medinaLayout'
 import { townBus, type AvatarMilestone, type AvatarMoved } from '../game/townBus'
 import { createTown3d } from '../game3d/createTown3d'
-import { isTownView3d } from '../lib/townView'
 import { getAvatars, getVillageHistory, getVillages, type AvatarSummary, type Village } from '../lib/api'
 import { connectLiveEvents, type LiveEvent } from '../lib/liveEvents'
 import { celebrationText } from '../lib/progression'
@@ -31,27 +29,11 @@ interface TownCanvasProps {
 }
 
 /**
- * Starts the 2D or the 3D town in `container`. Both speak the same `townBus`
- * events, so the rest of this component does not care which one runs.
- *
- * @returns the function that destroys it
- */
-function startTown(container: HTMLElement): () => void {
-  // The 3D town (D76) is opt-in with `?view=3d`; without it the 2D town runs, unchanged.
-  if (isTownView3d()) {
-    const town = createTown3d(container)
-    return () => town.destroy()
-  }
-  const game = createGame(container)
-  return () => game.destroy(true)
-}
-
-/**
- * Hosts the town (2D Phaser, or 3D with `?view=3d`) and feeds it data. Only this component and the scene
- * use `townBus`; the rest of the app gets plain callbacks.
+ * Hosts the 3D town (D76, D77) and feeds it data. Only this component, the
+ * town and the Judge Tour use `townBus`; the rest of the app gets plain callbacks.
  *
  * ```text
- * mount ─> createGame ─> TownScene.create ─> "town:ready"
+ * mount ─> createTown3d ───────────────────> "town:ready"
  *            ─> GET /villages             ─> "villages:updated"
  *            ─> GET /avatars              ─> "avatars:updated"   (after villages,
  *            ─> GET /villages/{id}/history ─> "village:history"    so sprites never
@@ -61,7 +43,7 @@ function startTown(container: HTMLElement): () => void {
  * /ws milestone ───────────────────────────> "avatar:milestone" (name tag level + floating text)
  * scene "avatar:selected" / "village:selected" ─> onSelect
  * scene "landmark:selected" ─> onOpenLandmark (Souk -> marketplace, Hall of Fame -> leaderboard)
- * unmount ─> close /ws, destroy the game
+ * unmount ─> close /ws, destroy the town
  * ```
  */
 export function TownCanvas({
@@ -96,7 +78,7 @@ export function TownCanvas({
 
     // React StrictMode (dev) runs this effect twice: the cleanup below
     // destroys the first town, so only one canvas remains.
-    const destroyTown = startTown(container)
+    const town = createTown3d(container)
     // Aborted on unmount, so late answers are not drawn into a destroyed game.
     const unmounted = new AbortController()
     const isUnmounted = () => unmounted.signal.aborted
@@ -195,7 +177,7 @@ export function TownCanvas({
       townBus.off('landmark:selected', onLandmarkSelected)
       townBus.off('avatars:reload', reloadAvatars)
       stopLiveEvents()
-      destroyTown()
+      town.destroy()
     }
   }, [])
 

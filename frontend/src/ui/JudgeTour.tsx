@@ -95,7 +95,7 @@ export function JudgeTour({ stepIndex, onStepChange, onClose }: JudgeTourProps) 
       // 2. Trigger market shock and tick on backend
       const res = await triggerDemoStep('usdt_spike').catch(() => null)
 
-      // 3. Guarantee immediate visual feedback on the Phaser canvas
+      // 3. Guarantee immediate visual feedback in the 3D town
       townBus.emit('avatar:moved', {
         avatarId: 'a0000000-0000-4000-8000-000000000001',
         to: 'rhea-lend-usdt',

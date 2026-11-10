@@ -10,7 +10,6 @@ import {
   toPixels,
   type Point,
 } from './medinaLayout'
-import { directionOf, knownSprite, SPRITES, walkFrames } from './sprites'
 import {
   courtSlot,
   districtSlot,
@@ -194,28 +193,5 @@ describe('layoutTagTiers', () => {
     expect(tiers.get('d')).toBe(0)
     expect(tiers.get('e')).toBe(1)
     expect(tiers.get('f')).toBe(2)
-  })
-})
-
-describe('sprites', () => {
-  it('falls back to the default sprite for unknown ids', () => {
-    expect(knownSprite('princess')).toBe('princess')
-    expect(knownSprite('merchant_1')).toBe('boy')
-  })
-
-  it('has 6 to 10 characters to pick from (F3.1)', () => {
-    expect(SPRITES.length).toBeGreaterThanOrEqual(6)
-    expect(SPRITES.length).toBeLessThanOrEqual(10)
-  })
-
-  it('reads one column of the walk sheet per direction', () => {
-    expect(walkFrames('down')).toEqual([0, 4, 8, 12])
-    expect(walkFrames('right')).toEqual([3, 7, 11, 15])
-  })
-
-  it('faces up or down on an exact diagonal', () => {
-    expect(directionOf(10, 10)).toBe('down')
-    expect(directionOf(-10, -10)).toBe('up')
-    expect(directionOf(-20, 5)).toBe('left')
   })
 })

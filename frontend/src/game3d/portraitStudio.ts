@@ -1,10 +1,10 @@
 /**
  * Renders the head-and-shoulders portrait of each 3D character, for the
- * panels (`face3d.png`, shown by `faceUrl` in the 3D view, D76).
+ * panels (`characters/<id>/face.png`, shown by `faceUrl`, D76).
  *
  * This is a **dev tool**, not part of the running app: the PNGs are made
  * once and committed, so the panels just load an image. To make them again
- * (after changing a model or a tint), open `/?view=3d` in the dev server and
+ * (after changing a model or a tint), open the app in the dev server and
  * run in the browser console:
  *
  * ```js
@@ -12,7 +12,7 @@
  * const faces = await studio.renderAllPortraits()   // { boy: 'data:image/png;base64,...', ... }
  * ```
  *
- * then save each data URL as `public/assets/characters/<id>/face3d.png`.
+ * then save each data URL as `public/assets/characters/<id>/face.png`.
  *
  * ```text
  *   camera ◉ ─────────────►  ☺   looks at the head mesh, from the front and a little above

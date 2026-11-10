@@ -1,26 +1,10 @@
 # Art credits
 
-All art in this folder comes from the **Ninja Adventure Asset Pack** by
-[Pixel-boy](https://pixel-boy.itch.io/) and [AAA](https://www.instagram.com/challenger.aaa/),
-https://pixel-boy.itch.io/ninja-adventure-asset-pack
+The town is 3D (HANDOFF D76, D77).
 
-License: **CC0 1.0** (see `LICENSE-ninja-adventure.txt`). Attribution is not
-required, but we give it anyway. Thank you!
-
-Only the files we use are copied, renamed (HANDOFF D52, D54):
-
-| Here | In the pack |
-| --- | --- |
-| `tiles/floor.png` | `Backgrounds/Tilesets/TilesetFloor.png` |
-| `tiles/house.png` | `Backgrounds/Tilesets/TilesetHouse.png` |
-| `characters/<id>/walk.png` | `Actor/Character/<Name>/SeparateAnim/Walk.png` |
-| `characters/<id>/face.png` | `Actor/Character/<Name>/Faceset.png` |
-
-## 3D town (`?view=3d`, HANDOFF D76)
-
-- Buildings, walls, props and the ground are made in code
+- **Buildings, walls, props and the ground** are made in code
   (`src/game3d/buildings.ts`): no files, no licence.
-- Characters: **KayKit Character Pack: Adventurers 1.0** by
+- **Characters:** **KayKit Character Pack: Adventurers 1.0** by
   [Kay Lousberg](https://www.kaylousberg.com),
   https://kaylousberg.itch.io/kaykit-adventurers. License: **CC0 1.0** (see
   `LICENSE-kaykit-adventurers.txt`); credit is optional, we give it anyway.
@@ -36,12 +20,9 @@ Only the files we use are copied, renamed (HANDOFF D52, D54):
   | `models/characters/rogue.glb` | `Characters/gltf/Rogue.glb` |
   | `models/characters/rogue_hooded.glb` | `Characters/gltf/Rogue_Hooded.glb` |
 
-- Portraits: `characters/<id>/face3d.png` (128 × 128) are rendered by us from
+- **Portraits:** `characters/<id>/face.png` (128 × 128) are rendered by us from
   the KayKit models above (`src/game3d/portraitStudio.ts`), so they are CC0
   derivatives of that pack.
 
-## 2D town
-
-Character ids: `boy` = Boy, `princess` = Princess, `old_man` = OldMan,
-`hunter` = Hunter, `monk` = Monk, `noble` = Noble, `samurai` = Samurai,
-`ninja_blue` = NinjaBlue.
+The first, 2D town used the Ninja Adventure Asset Pack (CC0, by Pixel-boy and
+AAA). That art was removed in D77; it is in git history before that commit.

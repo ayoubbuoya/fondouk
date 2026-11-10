@@ -13,6 +13,7 @@ import {
   LANDMARKS,
   MAIN_STREET_Y,
   PAVED,
+  pavedMask,
   solidRects,
   SPARE_PLOTS,
   TILE_PX,
@@ -108,7 +109,7 @@ describe('buildings', () => {
 
   it('sizes each prop from its frame', () => {
     for (const item of [...DECOR_PROPS, ...DECOR_BUILDINGS]) {
-      const [, , w, h] = FRAMES[item.frame]
+      const [w, h] = FRAMES[item.frame]
       expect([item.tiles.w, item.tiles.h]).toEqual([w, h])
     }
   })
@@ -124,11 +125,23 @@ describe('ground and wall', () => {
     expect(inside(TOWN, { x: 0, y: 0, w: WORLD_TILES.w, h: WORLD_TILES.h })).toBe(true)
   })
 
-  it('paves only areas at least 2 tiles wide and high (no border tiles for strips)', () => {
-    for (const area of PAVED) {
-      expect(area.w).toBeGreaterThanOrEqual(2)
-      expect(area.h).toBeGreaterThanOrEqual(2)
-    }
+  it('marks exactly the tiles the paved areas cover, over the whole world', () => {
+    const mask = pavedMask()
+    expect(mask).toHaveLength(WORLD_TILES.h)
+    for (const row of mask) expect(row).toHaveLength(WORLD_TILES.w)
+
+    const court = PAVED[0]
+    expect(mask[court.y][court.x]).toBe(true)
+    expect(mask[court.y + court.h - 1][court.x + court.w - 1]).toBe(true)
+    // The world's corner is open desert.
+    expect(mask[0][0]).toBe(false)
+  })
+
+  it('paves the caravan road all the way to the edge of the world', () => {
+    // The north-south street leaves through the gate and ends on the bottom row.
+    const road = PAVED[2]
+    expect(road.y + road.h).toBe(WORLD_TILES.h)
+    expect(pavedMask()[WORLD_TILES.h - 1][road.x]).toBe(true)
   })
 
   it('paves the hub and the end of every street', () => {

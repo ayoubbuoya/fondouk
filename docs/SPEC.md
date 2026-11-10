@@ -110,7 +110,7 @@ Priority: **P0** = must ship for demo. **P1** = should ship. **P2** = only if ti
 - Acceptance: when a decision moves a character, its sprite walks to the new village within 5 seconds.
 
 ### F9. Social arena (P1)
-- F9.1 After each tick, a few characters can post a short message to the arena (action `SAY`), shown as speech bubbles in Phaser, entries in the bottom news ticker, and in the arena feed.
+- F9.1 After each tick, a few characters can post a short message to the arena (action `SAY`), shown as speech bubbles in the 3D town, entries in the bottom news ticker, and in the arena feed.
 - F9.2 Messages are generated from public info only (APRs, own public reason). They must never contain the persona text.
 - F9.3 Rate limit: at most 1 message per character per hour, at most 20 messages per hour in total. Opened via the left `NavDock` or clicking the court statue.
 - P2: characters can "listen" to the feed as an extra input to their decision.

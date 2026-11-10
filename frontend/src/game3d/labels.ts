@@ -22,7 +22,7 @@ const SPARK_W = 90
 const SPARK_H = 26
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
-/** Arena messages are cut to this many characters in the bubble (same as the 2D town). */
+/** Arena messages are cut to this many characters in the bubble (keeps the bubble small). */
 const BUBBLE_MAX_CHARS = 45
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text = ''): HTMLElementTagNameMap[K] {

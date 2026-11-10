@@ -1,27 +1,30 @@
 import { describe, expect, it } from 'vitest'
 
-import { CHARACTER_MODELS, faceUrl, modelUrl, SPRITE_LOOKS, SPRITES } from './sprites'
+import { CHARACTER_MODELS, faceUrl, knownSprite, modelUrl, SPRITE_LOOKS, SPRITES } from './sprites'
 
-describe('faceUrl', () => {
-  it('shows the pixel face in the 2D town', () => {
-    expect(faceUrl('monk', false)).toBe('/assets/characters/monk/face.png')
+describe('knownSprite', () => {
+  it('falls back to the default sprite for unknown ids', () => {
+    expect(knownSprite('princess')).toBe('princess')
+    expect(knownSprite('merchant_1')).toBe('boy')
   })
 
-  it('shows the 3D headshot in the 3D town', () => {
-    expect(faceUrl('monk', true)).toBe('/assets/characters/monk/face3d.png')
-  })
-
-  it('falls back to the default character for an unknown id, in both towns', () => {
-    expect(faceUrl('merchant_9', false)).toBe('/assets/characters/boy/face.png')
-    expect(faceUrl('merchant_9', true)).toBe('/assets/characters/boy/face3d.png')
-  })
-
-  it('defaults to the 2D face outside a browser', () => {
-    expect(faceUrl('monk')).toBe('/assets/characters/monk/face.png')
+  it('has 6 to 10 characters to pick from (F3.1)', () => {
+    expect(SPRITES.length).toBeGreaterThanOrEqual(6)
+    expect(SPRITES.length).toBeLessThanOrEqual(10)
   })
 })
 
-describe('SPRITE_LOOKS (3D town)', () => {
+describe('faceUrl', () => {
+  it('points at the character headshot', () => {
+    expect(faceUrl('monk')).toBe('/assets/characters/monk/face.png')
+  })
+
+  it('falls back to the default character for an unknown id', () => {
+    expect(faceUrl('merchant_9')).toBe('/assets/characters/boy/face.png')
+  })
+})
+
+describe('SPRITE_LOOKS', () => {
   it('gives every sprite id a known model', () => {
     for (const sprite of SPRITES) {
       expect(CHARACTER_MODELS).toContain(SPRITE_LOOKS[sprite].model)

@@ -12,7 +12,7 @@
  *   ▼ y                        ▼ z
  * ```
  *
- * So south on the 2D map (larger y) is "towards the camera" (larger z) in 3D.
+ * So south on the layout (larger y) is "towards the camera" (larger z) in 3D.
  */
 
 import { TILE_PX, type Point, type TileRect } from '../game/medinaLayout'

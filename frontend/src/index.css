@@ -55,9 +55,9 @@ body {
   inset: 0;
 }
 
-/* Phaser's Scale.RESIZE sizes the canvas to this box. */
+/* The 3D town fills this box (game3d/createTown3d.ts); its label layer is
+   positioned against it. */
 .town-canvas {
-  /* The 3D town's label layer is positioned against this box. */
   position: relative;
   width: 100%;
   height: 100%;
@@ -647,7 +647,6 @@ button.primary:hover:not(:disabled) {
 }
 
 .panel-face {
-  image-rendering: pixelated;
   border: 2px solid var(--accent);
   border-radius: 4px;
   background: var(--panel-raised);
@@ -890,7 +889,6 @@ button.primary:hover:not(:disabled) {
 }
 
 .clone-sprite-btn img {
-  image-rendering: pixelated;
   display: block;
 }
 
@@ -981,9 +979,6 @@ button.link:hover:not(:disabled) {
   color: var(--accent);
 }
 
-button.link img {
-  image-rendering: pixelated;
-}
 
 .chart {
   display: flex;
@@ -1095,7 +1090,6 @@ button.link img {
 
 .sprite-option img {
   display: block;
-  image-rendering: pixelated;
 }
 
 .sprite-option.selected {
@@ -1243,7 +1237,6 @@ button.secondary {
 .leaderboard-face {
   width: 24px;
   height: 24px;
-  image-rendering: pixelated;
   border-radius: 4px;
   background: var(--bg);
   flex-shrink: 0;
@@ -1375,7 +1368,6 @@ button.secondary {
 .arena-avatar-face {
   width: 28px;
   height: 28px;
-  image-rendering: pixelated;
 }
 
 .arena-message-bubble {
@@ -2179,9 +2171,3 @@ button.secondary {
   white-space: nowrap;
 }
 
-/* 3D headshots (face3d.png, D76) are smooth renders, not pixel art: undo the
-   `image-rendering: pixelated` the panels set on faces. `!important` because
-   six different face rules set it, some with higher specificity. */
-img[src$='/face3d.png'] {
-  image-rendering: auto !important;
-}

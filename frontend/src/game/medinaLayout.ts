@@ -1,6 +1,7 @@
 /**
- * The medina of Fondouk: where everything is. Pure data, no Phaser:
- * unit-tested (`medinaLayout.test.ts`).
+ * The medina of Fondouk: where everything is. Pure data, no three.js:
+ * unit-tested (`medinaLayout.test.ts`). The 3D town builds from it
+ * (`game3d/`): 1 tile = 1 world unit (`game3d/coords.ts`).
  *
  * This file replaces the 2×2 lawn of D53. The map is still written in code
  * (no Tiled editor), but as one layout: districts, streets, landmarks, props.
@@ -28,16 +29,18 @@
  * main street, your street backwards": no pathfinding needed.
  *
  * Village positions come from here, keyed by village id. The DB columns
- * `villages.map_x / map_y` are no longer read (HANDOFF D68): hand-placed art
- * must match the position to the pixel, so there is one owner.
+ * `villages.map_x / map_y` are no longer read (HANDOFF D68): hand-placed
+ * buildings must match the position exactly, so there is one owner.
  */
 
-export const TILE_SIZE = 16
-/** Pixel art is drawn at 2×: one tile = 32 world pixels. */
-export const TILE_SCALE = 2
-export const TILE_PX = TILE_SIZE * TILE_SCALE
+/**
+ * "Layout pixels" per tile. Points (`Point`) and the walking numbers in
+ * `walkPath.ts` are in these units, a leftover of the first, 2D map (D77
+ * kept them so no number had to change); `game3d/coords.ts` divides by it.
+ */
+export const TILE_PX = 32
 
-/** A point in world pixels. */
+/** A point in layout pixels (`TILE_PX` per tile). */
 export interface Point {
   x: number
   y: number
@@ -53,7 +56,6 @@ export interface TileRect {
 
 /** The whole world: the town plus a desert margin around it. */
 export const WORLD_TILES = { w: 76, h: 46 } as const
-export const WORLD_PIXELS = { w: WORLD_TILES.w * TILE_PX, h: WORLD_TILES.h * TILE_PX } as const
 
 /** Where the town's tile (0, 0) is in the world. */
 const TOWN_ORIGIN = { x: 8, y: 3 } as const
@@ -82,8 +84,6 @@ export const MAIN_STREET_Y = HUB.y
 
 /**
  * Light-sand paving. Rectangles may overlap; together they form the streets.
- * Every rectangle is at least 2 tiles wide and high, because the tileset has
- * border tiles for edges and corners but not for 1-tile strips.
  */
 export const PAVED: TileRect[] = [
   rect(24, 14, 12, 10), // court
@@ -101,6 +101,22 @@ export const PAVED: TileRect[] = [
   rect(16, 16, 8, 2), // souk (marketplace) front
 ]
 
+/**
+ * `mask[ty][tx]` = true where the ground is paved; every tile of the world
+ * is in it. Used to paint the ground (`game3d/buildings.ts`).
+ */
+export function pavedMask(): boolean[][] {
+  const mask = Array.from({ length: WORLD_TILES.h }, () => new Array<boolean>(WORLD_TILES.w).fill(false))
+  for (const area of PAVED) {
+    for (let ty = area.y; ty < area.y + area.h; ty++) {
+      for (let tx = area.x; tx < area.x + area.w; tx++) {
+        if (ty >= 0 && ty < WORLD_TILES.h && tx >= 0 && tx < WORLD_TILES.w) mask[ty][tx] = true
+      }
+    }
+  }
+  return mask
+}
+
 // ---- places ----
 
 /** Somewhere characters can stand: a district, or the court. */
@@ -113,7 +129,7 @@ export interface Place {
 
 /** A village's home: a building with a forecourt. */
 export interface District extends Place {
-  /** 4 × 3 tiles: the size of a house in `house.png`. */
+  /** 4 × 3 tiles: the size of a district house (`houseRed`, `houseOrange`). */
   building: TileRect
 }
 
@@ -168,49 +184,51 @@ export function assignDistricts(villageIds: string[]): Map<string, District> {
 // ---- art ----
 
 /**
- * Pieces of `public/assets/tiles/house.png` (Ninja Adventure `TilesetHouse.png`),
- * as [column, row, width, height] in 16 px tiles. Picked by eye on 10 Nov.
+ * The kinds of buildings and props, with the ground they cover as
+ * [width, height] in tiles. `game3d/buildings.ts` has one 3D builder per
+ * name. (The names and sizes come from the 2D tileset this map was first
+ * drawn with, removed in D77.)
  */
 export const FRAMES = {
-  houseRed: [12, 0, 4, 3],
-  houseOrange: [0, 0, 4, 3],
-  houseSand: [4, 0, 4, 3],
-  shop: [16, 0, 3, 3],
-  smithy: [19, 0, 4, 3],
-  dome: [23, 0, 3, 3],
-  bigHouse: [29, 0, 4, 4],
-  kiln: [29, 4, 3, 4],
-  hut: [25, 7, 4, 5],
-  brickHouse: [19, 19, 3, 3],
-  arch: [29, 20, 3, 3],
-  statueBear: [1, 15, 2, 3],
-  statueOrb: [3, 15, 2, 2],
-  statueBuddha: [5, 15, 2, 2],
-  statueFrog: [3, 17, 2, 2],
-  statueKnight: [5, 17, 2, 2],
-  pillar: [0, 15, 1, 3],
-  stallLight: [16, 16, 3, 2],
-  stallDark: [19, 16, 3, 2],
-  potWater: [16, 13, 1, 1],
-  potGreens: [17, 13, 1, 1],
-  potRed: [18, 13, 1, 1],
-  barrel: [18, 15, 1, 1],
-  barrelOpen: [17, 15, 1, 1],
-  crateApples: [19, 14, 1, 1],
-  crateBread: [20, 14, 1, 1],
-  sack: [21, 13, 1, 1],
-  jar: [17, 20, 1, 1],
-  bannerRed: [23, 20, 1, 2],
-  bannerTeal: [24, 20, 1, 2],
-  bannerGreen: [25, 20, 1, 2],
-  bannerPurple: [27, 20, 1, 2],
-  bannerYellow: [28, 20, 1, 2],
-  campTent: [16, 11, 2, 2],
-  bush: [8, 15, 1, 2],
-  wallH: [11, 9, 1, 1],
-  wallV: [11, 8, 1, 1],
-  tower: [8, 8, 2, 2],
-} as const satisfies Record<string, readonly [number, number, number, number]>
+  houseRed: [4, 3],
+  houseOrange: [4, 3],
+  houseSand: [4, 3],
+  shop: [3, 3],
+  smithy: [4, 3],
+  dome: [3, 3],
+  bigHouse: [4, 4],
+  kiln: [3, 4],
+  hut: [4, 5],
+  brickHouse: [3, 3],
+  arch: [3, 3],
+  statueBear: [2, 3],
+  statueOrb: [2, 2],
+  statueBuddha: [2, 2],
+  statueFrog: [2, 2],
+  statueKnight: [2, 2],
+  pillar: [1, 3],
+  stallLight: [3, 2],
+  stallDark: [3, 2],
+  potWater: [1, 1],
+  potGreens: [1, 1],
+  potRed: [1, 1],
+  barrel: [1, 1],
+  barrelOpen: [1, 1],
+  crateApples: [1, 1],
+  crateBread: [1, 1],
+  sack: [1, 1],
+  jar: [1, 1],
+  bannerRed: [1, 2],
+  bannerTeal: [1, 2],
+  bannerGreen: [1, 2],
+  bannerPurple: [1, 2],
+  bannerYellow: [1, 2],
+  campTent: [2, 2],
+  bush: [1, 2],
+  wallH: [1, 1],
+  wallV: [1, 1],
+  tower: [2, 2],
+} as const satisfies Record<string, readonly [number, number]>
 
 export type FrameName = keyof typeof FRAMES
 
@@ -223,7 +241,7 @@ export interface Prop {
 
 /** A prop whose top-left corner is at town tile (x, y); fractions allowed. */
 function prop(frame: FrameName, x: number, y: number): Prop {
-  const [, , w, h] = FRAMES[frame]
+  const [w, h] = FRAMES[frame]
   return { frame, tiles: rect(x, y, w, h) }
 }
 

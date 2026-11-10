@@ -3,22 +3,21 @@
  * model pack exists, and a medina is mostly plaster boxes, flat roofs, domes
  * and arches anyway.
  *
- * `medinaLayout.ts` still owns *where* things are. Each of its `FrameName`s
- * (a piece of the 2D `house.png`) has a builder here that makes the 3D
- * version of that piece.
+ * `medinaLayout.ts` owns *where* things are and how much ground each piece
+ * covers. Each of its `FrameName`s has a builder here that makes the 3D piece.
  *
  * ```text
- *   a 2D frame is a FRONT view            its 3D footprint on the ground
- *   ┌────────┐  h tiles tall              ┌────────┐ ─┐
- *   │  roof  │                            │        │  │ depth (chosen by the builder)
- *   │ ▢ ▟▙ ▢ │                            └──door──┘ ─┘
- *   └────────┘ <- bottom edge = the door   ^ front edge = the bottom edge of the 2D rectangle
+ *   layout rectangle (top view)            what is built on it
+ *   ┌────────┐ ─┐                          ┌────────┐ ─┐ depth (chosen by the builder,
+ *   │        │  │ h tiles                  │        │  │ may be less than h)
+ *   │        │  │                          └──door──┘ ─┘
+ *   └────────┘ ─┘ <- bottom edge           ^ the front stands on the bottom edge
  *     w tiles
  * ```
  *
- * So a building keeps its 2D width, stands with its front on the bottom edge
- * of its layout rectangle, and goes back (north) by its own depth. Characters
- * stand in front of doors exactly as in 2D.
+ * So a building keeps the rectangle's width, stands with its front on the
+ * rectangle's bottom edge, and goes back (north) by its own depth. Doors line
+ * up with the spots where `walkPath.ts` puts characters.
  */
 
 import {
@@ -35,8 +34,8 @@ import {
   type BufferGeometry,
 } from 'three'
 
-import { FRAMES, WORLD_TILES, type FrameName, type Prop, type TileRect } from '../game/medinaLayout'
-import { pavedMask } from '../game/townMap'
+import { FRAMES, pavedMask, WORLD_TILES, type FrameName, type Prop, type TileRect } from '../game/medinaLayout'
+
 
 // ---- colours ----
 
@@ -303,7 +302,7 @@ function tent(): Group {
   return group
 }
 
-/** A palm: the desert's version of the 2D bush. */
+/** A palm tree (the layout calls it `bush`). */
 function palm(): Group {
   const group = new Group()
   add(group, CYLINDER, WOOD, [0.22, 2.2, 0.22], [0, 0, 0])
@@ -361,7 +360,7 @@ function kiln(): Group {
 const same = (color: number) => color
 
 /**
- * The 3D version of each 2D frame. `w` is the frame's width in tiles;
+ * The 3D builder of each frame. `w` is the frame's width in tiles;
  * `tone` recolours it (used for stale villages).
  */
 const BUILDERS: Record<FrameName, (w: number, tone: (color: number) => number) => Built> = {
@@ -433,7 +432,7 @@ const BUILDERS: Record<FrameName, (w: number, tone: (color: number) => number) =
  * @param stale draws it washed out (a village with stale data)
  */
 export function buildFrame(frame: FrameName, tiles: TileRect, stale = false): Group {
-  const width = FRAMES[frame][2]
+  const width = FRAMES[frame][0]
   const { object, depth } = BUILDERS[frame](width, stale ? greyed : same)
   object.position.set(tiles.x + tiles.w / 2, 0, tiles.y + tiles.h - depth / 2)
   return object
