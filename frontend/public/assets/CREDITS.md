@@ -20,11 +20,21 @@ Only the files we use are copied, renamed (HANDOFF D52, D54):
 
 - Buildings, walls, props and the ground are made in code
   (`src/game3d/buildings.ts`): no files, no licence.
-- Characters: **KayKit Character Pack: Adventurers** by Kay Lousberg,
-  https://kaylousberg.itch.io/kaykit-adventurers, expected in
-  `models/characters/<model>.glb` (`knight`, `barbarian`, `mage`, `rogue`,
-  `rogue_hooded`). **Not added yet.** Listed as CC0; read the licence file in
-  the download and copy it here before committing the models.
+- Characters: **KayKit Character Pack: Adventurers 1.0** by
+  [Kay Lousberg](https://www.kaylousberg.com),
+  https://kaylousberg.itch.io/kaykit-adventurers. License: **CC0 1.0** (see
+  `LICENSE-kaykit-adventurers.txt`); credit is optional, we give it anyway.
+  Downloaded on 10 Nov 2026 from the creator's GitHub,
+  https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0.
+  Only the 5 character files are copied, renamed to lowercase:
+
+  | Here | In the pack (`addons/kaykit_character_pack_adventures/`) |
+  | --- | --- |
+  | `models/characters/knight.glb` | `Characters/gltf/Knight.glb` |
+  | `models/characters/barbarian.glb` | `Characters/gltf/Barbarian.glb` |
+  | `models/characters/mage.glb` | `Characters/gltf/Mage.glb` |
+  | `models/characters/rogue.glb` | `Characters/gltf/Rogue.glb` |
+  | `models/characters/rogue_hooded.glb` | `Characters/gltf/Rogue_Hooded.glb` |
 
 ## 2D town
 

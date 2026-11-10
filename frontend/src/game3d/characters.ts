@@ -57,9 +57,31 @@ function loadModel(model: CharacterModel): Promise<GLTF | null> {
   return pending
 }
 
-/** The first clip whose name contains `word` ("Idle", "Walking_A", ...). */
-function findClip(clips: AnimationClip[], word: RegExp): AnimationClip | undefined {
-  return clips.find((clip) => word.test(clip.name))
+/**
+ * The KayKit clips we play. Exact names: a loose search for "idle" would find
+ * `2H_Melee_Idle` (a fighting stance) first, because it comes earlier in the file.
+ */
+const IDLE_CLIP = 'Idle'
+const WALK_CLIP = 'Walking_A'
+
+function findClip(clips: AnimationClip[], name: string): AnimationClip | undefined {
+  return clips.find((clip) => clip.name === name)
+}
+
+/**
+ * Each KayKit model file carries every weapon and shield of its class as a
+ * separate mesh (the Knight has 5 shields and 2 swords). Merchants in a souk
+ * carry none, so these meshes are removed. Hats, capes and helmets stay.
+ */
+const GEAR_MESH = /shield|sword|axe|knife|crossbow|wand|staff|spellbook|mug|throwable/i
+
+function removeGear(model: Object3D): void {
+  const gear: Object3D[] = []
+  // Collect first: removing while `traverse` walks the tree would skip children.
+  model.traverse((child) => {
+    if (child instanceof Mesh && GEAR_MESH.test(child.name)) gear.push(child)
+  })
+  for (const mesh of gear) mesh.removeFromParent()
 }
 
 const STAND_IN_ROBE = new CapsuleGeometry(0.28, 0.55, 4, 10)
@@ -147,12 +169,14 @@ export class CharacterBody {
 
   private useModel(gltf: GLTF, tint: number): void {
     const model = cloneSkinned(gltf.scene)
+    // Before measuring: a raised sword would make the body count as taller.
+    removeGear(model)
     this.fitHeight(model)
     this.tint(model, tint)
 
     this.mixer = new AnimationMixer(model)
-    const idleClip = findClip(gltf.animations, /idle/i)
-    const walkClip = findClip(gltf.animations, /walk/i)
+    const idleClip = findClip(gltf.animations, IDLE_CLIP)
+    const walkClip = findClip(gltf.animations, WALK_CLIP)
     this.idle = idleClip && this.mixer.clipAction(idleClip)
     this.walk = walkClip && this.mixer.clipAction(walkClip)
     // The character may already be walking when its model arrives.
