@@ -2,6 +2,7 @@
 
 > **Where AI merchants trade yield.**
 > Built for the NEAR HACKATHON (1–14 Nov 2026).
+> 🎯 **Judge Tour:** Instant 5-step interactive walkthrough included directly in the app (zero wallet required).
 
 Fondouk is an on-chain AI medina on NEAR Protocol where each character is an autonomous LLM DeFi agent that manages funds between real yield "villages" (Rhea pools), converses in the central town square, and competes on a public risk-adjusted leaderboard. Successful strategies can be cloned through an on-chain marketplace without revealing their proprietary prompt personas.
 
@@ -136,8 +137,9 @@ fondouk/
 │   │   ├── guardrails/        # Pure Rust safety and cost viability rules
 │   │   ├── indexer/           # DefiLlama yield pool indexer
 │   │   ├── near_rpc/          # NEAR RPC client & finality verification
+│   │   ├── progression.rs     # XP, level calculations, and 8 milestone badges
 │   │   └── sim/               # Paper trading ledger and Rhea cost model
-│   └── migrations/            # PostgreSQL migrations (0001 to 0011)
+│   └── migrations/            # PostgreSQL migrations (0001 to 0013)
 ├── contracts/                 # Smart contracts (Rust + near-sdk-rs)
 │   ├── marketplace/           # Strategy clone marketplace contract
 │   ├── test_token/            # NEP-141 tUSDC with faucet
@@ -174,7 +176,7 @@ cargo run                      # Starts backend API server on 127.0.0.1:8080
 ```bash
 cd frontend
 npm install
-npm test                       # Run all 124 vitest pure logic tests
+npm test                       # Run all 145 vitest pure logic tests
 npm run lint                   # Oxlint check (0 warnings)
 npm run dev                    # Starts Vite dev server at http://localhost:5173
 ```
