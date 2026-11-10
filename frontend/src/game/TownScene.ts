@@ -1,31 +1,49 @@
 /**
- * The town map (F8.1, F8.2, F2.3, F2.4): tile ground, village buildings with
- * live APY labels, and one walking sprite per character.
+ * The town map (F8.1, F8.2, F2.3, F2.4): the medina of Fondouk. Sand and
+ * paved streets, a wall with a gate, one district per village with its live
+ * APY sign, landmark buildings that open panels, and one walking sprite per
+ * character.
  *
  * ```text
- *        14.0%                         13.1%        top villages: labels above
- *    Rhea Lend USDC                Rhea Lend USDT
- *       ~~~~~~~~                      ~~~~~~~~
- *       [house]                        [house]
- *        ☺☺☺  ╲                      ╱  ☺          queue grows towards the arena
- *               ╲    ┌─Arena─┐    ╱
- *                    │ ☺ ☺   │                     all-cash characters
- *               ╱    └───────┘    ╲
- *        ☺☺  ╱                       ╲  ☺☺
- *       [house]                        [house]
- *       ~~~~~~~~ ...                               bottom villages: labels below
+ *   draw order (depth)
+ *   0      ground tiles (sand, paving)             built once
+ *   2..3   buildings, props, characters            sorted by their feet:
+ *                                                  lower on screen = in front
+ *   5      signs (village APY, landmark names)     always on top, same size
+ *                                                  on screen at any zoom
  * ```
  *
- * Data only arrives through `townBus` (React owns it, D48); the scene only
- * reports clicks back. Village positions are the DB `map_x/map_y` (0–400)
- * × `SCALE`. Art: Ninja Adventure, CC0 (`public/assets/CREDITS.md`).
+ * Where things are comes from `medinaLayout.ts` (HANDOFF D68); the DB
+ * `map_x/map_y` are not read. Data only arrives through `townBus` (React
+ * owns it, D48); the scene only reports clicks back.
+ * Art: Ninja Adventure, CC0 (`public/assets/CREDITS.md`).
  */
 
-import { GameObjects, Input, Scene, Textures, Tilemaps, Tweens } from 'phaser'
+import { GameObjects, Input, Scene, Structs, Textures, Tweens } from 'phaser'
 
 import type { ArenaMessage, AvatarSummary, Village, YieldPoint } from '../lib/api'
 import { formatApy, staleLabel, totalApy } from '../lib/format'
-import { nextZoom } from './cameraZoom'
+import { nextZoom, zoomLimits } from './cameraZoom'
+import {
+  assignDistricts,
+  COURT,
+  COURT_STATUE,
+  DECOR_BUILDINGS,
+  DECOR_PROPS,
+  districtFrame,
+  FRAMES,
+  GATE,
+  LANDMARKS,
+  TILE_SCALE,
+  TILE_SIZE,
+  toPixels,
+  TOWN,
+  wallProps,
+  WORLD_PIXELS,
+  type District,
+  type Place,
+  type Prop,
+} from './medinaLayout'
 import {
   directionOf,
   knownSprite,
@@ -39,35 +57,23 @@ import {
   type SpriteId,
 } from './sprites'
 import { townBus, type AvatarMoved, type VillageHistory } from './townBus'
-import { buildTownTiles, MAP_PIXELS, pixelToTile, TILE_SCALE, TILE_SIZE } from './townMap'
-import { CENTER, layoutStandings, walkPath, type Point } from './walkPath'
-
-/** The database grid is 400×400 (migration 0002). */
-const WORLD_SIZE = 400
-const SCALE = MAP_PIXELS / WORLD_SIZE
-export const CANVAS_SIZE = MAP_PIXELS
-
-/** A house in `house.png` is 4 × 3 tiles; drawn ×2 = 128 × 96. */
-const HOUSE_W = 64
-const HOUSE_H = 48
-const HOUSE_HALF_H = (HOUSE_H * TILE_SCALE) / 2
-/** Where each house is in `house.png` (picked by eye, D53). */
-const HOUSE_FRAMES = {
-  lending: { x: 192, y: 0 }, // red tile roof
-  pool: { x: 0, y: 0 }, // orange roof
-}
+import { buildGroundTiles } from './townMap'
+import { layoutStandings, pathLength, placeOf, walkPath, walkSpeed, type Point } from './walkPath'
 
 const SPARK_W = 90
 const SPARK_H = 26
 /** Redraw so "stale · N min ago" stays true between hourly updates. */
 const STALE_REFRESH_MS = 60_000
 
-/** 200 px/s: village -> centre -> village (~570 px) takes under 3 s (F8 "within 5 s"). */
-const WALK_SPEED_PX_PER_S = 200
 const WALK_FPS = 8
 const STALE_TINT = 0x8a8a8a
 
 const TEXT_FONT = 'system-ui, sans-serif'
+
+const DEPTH_GROUND = 0
+/** Buildings, props and characters share this band, sorted by their feet. */
+const DEPTH_WORLD = 2
+const DEPTH_SIGNS = 5
 
 /** One character on the map. */
 interface AvatarSprite {
@@ -76,8 +82,10 @@ interface AvatarSprite {
   /** The name tag; kept at the same size on screen at any zoom. */
   name: GameObjects.Text
   sprite: SpriteId
-  /** Where it stands or is going; `null` = arena (all cash). */
+  /** Where it stands or is going; `null` = court (all cash). */
   villageId: string | null
+  /** The place it stands in (or walks to); `undefined` until first placed. */
+  place?: Place
   /** The spot it is standing on, or walking to. */
   target: Point
   walk?: Tweens.TweenChain
@@ -88,15 +96,19 @@ interface AvatarSprite {
 export class TownScene extends Scene {
   private villages: Village[] = []
   private histories = new Map<string, YieldPoint[]>()
-  /** Village id -> pixel position, used for the sprite layout. */
-  private villagePoints = new Map<string, Point>()
+  /** Village id -> its district; rebuilt when the village list changes. */
+  private districts = new Map<string, District>()
   private avatars = new Map<string, AvatarSprite>()
 
-  private ground?: Tilemaps.Tilemap
-  /** The village positions the ground was built for; rebuilt only if they change. */
-  private groundKey = ''
-  /** Buildings and labels; rebuilt on each update (4 villages, cheap). */
-  private villageLayer!: GameObjects.Container
+  /** District buildings and their signs; rebuilt on each update (4 villages, cheap). */
+  private villageObjects: GameObjects.GameObject[] = []
+  /** Signs drawn at 1/zoom so they keep their size on screen. */
+  private villageSigns: GameObjects.Container[] = []
+  private landmarkSigns: GameObjects.Text[] = []
+
+  private minZoom = 1
+  /** `false` until the camera was placed once; later resizes keep the user's view. */
+  private cameraPlaced = false
 
   constructor() {
     super('town')
@@ -120,40 +132,18 @@ export class TownScene extends Scene {
       this.textures.get(key).setFilter(Textures.FilterMode.NEAREST)
     }
     const house = this.textures.get('house')
-    for (const [name, frame] of Object.entries(HOUSE_FRAMES)) {
-      house.add(name, 0, frame.x, frame.y, HOUSE_W, HOUSE_H)
+    for (const [name, [column, row, width, height]] of Object.entries(FRAMES)) {
+      house.add(name, 0, column * TILE_SIZE, row * TILE_SIZE, width * TILE_SIZE, height * TILE_SIZE)
     }
     this.createWalkAnimations()
 
-    this.buildGround([])
-    this.add
-      .text(CENTER.x, CENTER.y - 58, '💬 Arena', {
-        fontFamily: TEXT_FONT,
-        fontSize: '16px',
-        fontStyle: 'bold',
-        color: '#ffffff',
-        stroke: '#3b2f1a',
-        strokeThickness: 4,
-      })
-      .setOrigin(0.5)
-      .setDepth(1)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => townBus.emit('arena:selected'))
-
-    this.add
-      .zone(CENTER.x, CENTER.y, 5 * TILE_SIZE * TILE_SCALE, 5 * TILE_SIZE * TILE_SCALE)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => townBus.emit('arena:selected'))
-      .setDepth(0.5)
-
-    this.villageLayer = this.add.container(0, 0).setDepth(1)
+    this.buildGround()
+    this.buildScenery()
+    this.buildLandmarks()
 
     const onVillages = (villages: Village[]) => {
       this.villages = villages
-      this.villagePoints = new Map(
-        villages.map((village) => [village.id, { x: village.map_x * SCALE, y: village.map_y * SCALE }]),
-      )
-      this.buildGround(villages)
+      this.districts = assignDistricts(villages.map((village) => village.id))
       this.redrawVillages()
       this.relayoutAvatars()
     }
@@ -169,12 +159,14 @@ export class TownScene extends Scene {
       this.relayoutAvatars()
     }
     const onArenaMessage = (msg: ArenaMessage) => this.showSpeechBubble(msg)
+    const onResize = (gameSize: Structs.Size) => this.fitCamera(gameSize.width, gameSize.height)
 
     townBus.on('villages:updated', onVillages)
     townBus.on('village:history', onHistory)
     townBus.on('avatars:updated', onAvatars)
     townBus.on('avatar:moved', onMoved)
     townBus.on('arena:message', onArenaMessage)
+    this.scale.on('resize', onResize)
     // Stop listening when the game is destroyed (React unmount), otherwise a
     // second game (StrictMode, hot reload) would get events for a dead scene.
     const unsubscribe = () => {
@@ -183,6 +175,7 @@ export class TownScene extends Scene {
       townBus.off('avatars:updated', onAvatars)
       townBus.off('avatar:moved', onMoved)
       townBus.off('arena:message', onArenaMessage)
+      this.scale.off('resize', onResize)
     }
     this.events.once('shutdown', unsubscribe)
     this.events.once('destroy', unsubscribe)
@@ -197,18 +190,19 @@ export class TownScene extends Scene {
 
   /**
    * Wheel zooms towards the cursor, dragging pans. The bounds stop the
-   * camera at the map edge, so zoom 1 shows exactly the town as before.
+   * camera at the world edge.
    */
   private setUpCamera(): void {
     const camera = this.cameras.main
-    camera.setBounds(0, 0, MAP_PIXELS, MAP_PIXELS)
+    camera.setBounds(0, 0, WORLD_PIXELS.w, WORLD_PIXELS.h)
+    this.fitCamera(this.scale.width, this.scale.height)
 
     this.input.on(
       'wheel',
       // Phaser already calls preventDefault on canvas wheel events
       // (`input.mouse.preventDefaultWheel` defaults to true), so the page does not scroll.
       (pointer: Input.Pointer, _over: GameObjects.GameObject[], _dx: number, deltaY: number) => {
-        const zoom = nextZoom(camera.zoom, deltaY)
+        const zoom = nextZoom(camera.zoom, deltaY, this.minZoom)
         if (zoom === camera.zoom) return
 
         // Keep the world point under the cursor in place: remember it, zoom,
@@ -234,10 +228,32 @@ export class TownScene extends Scene {
   }
 
   /**
-   * Zooming scales everything, so name tags would overlap just as much as
-   * before. Drawing them at 1/zoom keeps them the same size on screen while
-   * the gaps between characters grow, so a crowd spreads out (and the text
-   * stays sharp: its net scale is 1).
+   * Called at start and whenever the canvas changes size (window resize, a
+   * side panel opening). The first time it shows the whole town; later it
+   * only makes sure the zoom is still allowed, so the user's view is kept.
+   */
+  private fitCamera(width: number, height: number): void {
+    if (width <= 0 || height <= 0) return // the panel is not laid out yet
+    const camera = this.cameras.main
+    const town = toPixels(TOWN)
+    const limits = zoomLimits({ w: width, h: height }, WORLD_PIXELS, { w: town.w, h: town.h })
+    this.minZoom = limits.min
+
+    camera.setSize(width, height)
+    if (!this.cameraPlaced) {
+      this.cameraPlaced = true
+      camera.setZoom(limits.start)
+      camera.centerOn(town.x + town.w / 2, town.y + town.h / 2)
+    } else if (camera.zoom < limits.min) {
+      camera.setZoom(limits.min)
+    }
+    this.applyLabelScale()
+  }
+
+  /**
+   * Zooming scales everything, so signs and name tags would shrink or
+   * overlap. Drawing them at 1/zoom keeps them the same size on screen (and
+   * sharp: their net scale is 1).
    */
   private applyLabelScale(): void {
     const scale = 1 / this.cameras.main.zoom
@@ -245,6 +261,8 @@ export class TownScene extends Scene {
       avatar.name.setScale(scale)
       avatar.bubble?.setScale(scale)
     }
+    for (const sign of this.villageSigns) sign.setScale(scale)
+    for (const sign of this.landmarkSigns) sign.setScale(scale)
   }
 
   /**
@@ -331,51 +349,96 @@ export class TownScene extends Scene {
     }
   }
 
-  // ---- ground ----
+  // ---- ground and scenery (built once: the layout never changes at runtime) ----
 
-  /** (Re)builds the tile ground: grass, arena, and a road to each village. */
-  private buildGround(villages: Village[]): void {
-    const tiles = villages.map((village) => pixelToTile(village.map_x * SCALE, village.map_y * SCALE))
-    const key = tiles.map((tile) => `${tile.tx},${tile.ty}`).join(';')
-    if (this.ground && key === this.groundKey) return // live APY updates: nothing to redraw here
-    this.groundKey = key
-
-    this.ground?.destroy()
-    this.ground = this.make.tilemap({ data: buildTownTiles(tiles), tileWidth: TILE_SIZE, tileHeight: TILE_SIZE })
-    const tileset = this.ground.addTilesetImage('floor')
+  private buildGround(): void {
+    const ground = this.make.tilemap({ data: buildGroundTiles(), tileWidth: TILE_SIZE, tileHeight: TILE_SIZE })
+    const tileset = ground.addTilesetImage('floor')
     if (!tileset) throw new Error('floor tileset did not load')
-    this.ground.createLayer(0, tileset, 0, 0)?.setScale(TILE_SCALE).setDepth(0)
+    ground.createLayer(0, tileset, 0, 0)?.setScale(TILE_SCALE).setDepth(DEPTH_GROUND)
+  }
+
+  /** Draws one piece of `house.png` where the layout says, sorted by its bottom edge. */
+  private addProp(prop: Prop): GameObjects.Image {
+    const box = toPixels(prop.tiles)
+    return this.add
+      .image(box.x, box.y, 'house', prop.frame)
+      .setOrigin(0, 0)
+      .setScale(TILE_SCALE)
+      .setDepth(this.depthAt(box.y + box.h))
+  }
+
+  /** Lower on screen = drawn in front, so characters pass behind roofs and in front of doors. */
+  private depthAt(feetY: number): number {
+    return DEPTH_WORLD + feetY / WORLD_PIXELS.h
+  }
+
+  private buildScenery(): void {
+    for (const prop of [...wallProps(), GATE, ...DECOR_BUILDINGS, ...DECOR_PROPS]) this.addProp(prop)
+  }
+
+  /** The court statue (opens the Arena) and the landmark buildings (open their panel). */
+  private buildLandmarks(): void {
+    const openArena = () => townBus.emit('arena:selected')
+    const statue = toPixels(COURT_STATUE.tiles)
+    this.addProp(COURT_STATUE).setInteractive({ useHandCursor: true }).on('pointerdown', openArena)
+    this.landmarkSigns.push(this.addSign(statue.x + statue.w / 2, statue.y - 4, '💬 Arena', openArena))
+
+    for (const landmark of LANDMARKS) {
+      const open = () => townBus.emit('landmark:selected', landmark.id)
+      const box = toPixels(landmark.prop.tiles)
+      this.addProp(landmark.prop).setInteractive({ useHandCursor: true }).on('pointerdown', open)
+      this.landmarkSigns.push(this.addSign(box.x + box.w / 2, box.y - 4, landmark.label, open))
+    }
+  }
+
+  /** A clickable name above a landmark, anchored at its bottom centre. */
+  private addSign(x: number, y: number, label: string, onClick: () => void): GameObjects.Text {
+    return this.add
+      .text(x, y, label, {
+        fontFamily: TEXT_FONT,
+        fontSize: '15px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+        stroke: '#3b2f1a',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(DEPTH_SIGNS)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', onClick)
   }
 
   // ---- villages ----
 
   private redrawVillages(): void {
-    this.villageLayer.removeAll(true)
+    for (const object of this.villageObjects) object.destroy()
+    this.villageObjects = []
+    this.villageSigns = []
+
     const now = new Date()
     for (const village of this.villages) {
-      this.drawVillage(village, village.map_x * SCALE, village.map_y * SCALE, now)
+      const district = this.districts.get(village.id)
+      if (district) this.drawVillage(village, district, now)
     }
+    this.applyLabelScale()
   }
 
-  private drawVillage(village: Village, x: number, y: number, now: Date): void {
-    const building = this.add
-      .image(x, y, 'house', village.kind === 'lending' ? 'lending' : 'pool')
-      .setScale(TILE_SCALE)
+  private drawVillage(village: Village, district: District, now: Date): void {
+    const select = () => townBus.emit('village:selected', village.id)
+    const building = this.addProp({ frame: districtFrame(village.kind), tiles: district.building })
       .setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => townBus.emit('village:selected', village.id))
+      .on('pointerdown', select)
     if (village.stale) building.setTint(STALE_TINT)
-    this.villageLayer.add(building)
+    this.villageObjects.push(building)
 
-    // Labels go on the side away from the arena, where no queue stands.
-    const side = y < CENTER.y ? -1 : 1
-    const edge = y + side * HOUSE_HALF_H
-    const at = (distance: number) => edge + side * distance
-
-    const sparkTop = side < 0 ? at(8) - SPARK_H : at(8)
-    this.villageLayer.add(this.drawSparkline(this.histories.get(village.id) ?? [], x, sparkTop))
-    this.villageLayer.add(
+    // The sign sits above the roof and grows upwards from y = 0.
+    const box = toPixels(district.building)
+    const sign = this.add.container(box.x + box.w / 2, box.y - 2).setDepth(DEPTH_SIGNS)
+    sign.add(this.drawSparkline(this.histories.get(village.id) ?? [], 0, -SPARK_H - 6))
+    sign.add(
       this.add
-        .text(x, at(SPARK_H + 22), village.name, {
+        .text(0, -SPARK_H - 22, village.name, {
           fontFamily: TEXT_FONT,
           fontSize: '15px',
           color: '#ffffff',
@@ -384,9 +447,9 @@ export class TownScene extends Scene {
         })
         .setOrigin(0.5),
     )
-    this.villageLayer.add(
+    sign.add(
       this.add
-        .text(x, at(SPARK_H + 48), formatApy(totalApy(village)), {
+        .text(0, -SPARK_H - 48, formatApy(totalApy(village)), {
           fontFamily: TEXT_FONT,
           fontSize: '26px',
           fontStyle: 'bold',
@@ -399,9 +462,9 @@ export class TownScene extends Scene {
 
     const stale = staleLabel(village, now)
     if (stale) {
-      this.villageLayer.add(
+      sign.add(
         this.add
-          .text(x, at(SPARK_H + 76), stale, {
+          .text(0, -SPARK_H - 76, stale, {
             fontFamily: TEXT_FONT,
             fontSize: '13px',
             color: '#ffe08a',
@@ -411,6 +474,8 @@ export class TownScene extends Scene {
           .setOrigin(0.5),
       )
     }
+    this.villageObjects.push(sign)
+    this.villageSigns.push(sign)
   }
 
   /**
@@ -486,14 +551,15 @@ export class TownScene extends Scene {
       })
       .setOrigin(0.5, 1)
       .setScale(1 / this.cameras.main.zoom) // match the others if added while zoomed
-    // New sprites start in the arena; the first layout puts them on their
+    // New sprites start in the court; the first layout puts them on their
     // spot without walking (see `relayoutAvatars`).
-    const container = this.add.container(CENTER.x, CENTER.y, [body, name])
+    const start = COURT.slotsOrigin
+    const container = this.add.container(start.x, start.y, [body, name])
     container
       .setSize(TILE_SIZE * TILE_SCALE, TILE_SIZE * TILE_SCALE)
       .setInteractive({ useHandCursor: true })
       .on('pointerdown', () => townBus.emit('avatar:selected', avatar.id))
-    return { container, body, name, sprite, villageId: avatar.main_village, target: { ...CENTER } }
+    return { container, body, name, sprite, villageId: avatar.main_village, target: { ...start } }
   }
 
   /**
@@ -502,23 +568,23 @@ export class TownScene extends Scene {
    */
   private relayoutAvatars(): void {
     const standings = [...this.avatars].map(([id, avatar]) => ({ id, villageId: avatar.villageId }))
-    const spots = layoutStandings(standings, this.villagePoints)
+    const spots = layoutStandings(standings, this.districts)
 
     for (const [id, avatar] of this.avatars) {
       const spot = spots.get(id)
       if (!spot || (spot.x === avatar.target.x && spot.y === avatar.target.y)) continue
 
-      const placed = avatar.container.getData('placed') === true
-      const previousVillage = avatar.container.getData('villageId') as string | null | undefined
-      avatar.container.setData('villageId', avatar.villageId)
+      const previousPlace = avatar.place
+      const place = placeOf(avatar.villageId, this.districts)
+      avatar.place = place
       avatar.target = spot
-      if (!placed) {
-        avatar.container.setPosition(spot.x, spot.y).setData('placed', true)
+      if (!previousPlace) {
+        avatar.container.setPosition(spot.x, spot.y)
         this.updateDepth(avatar)
         continue
       }
       const from = { x: avatar.container.x, y: avatar.container.y }
-      this.walk(avatar, walkPath(from, spot, previousVillage === avatar.villageId))
+      this.walk(avatar, walkPath(from, spot, previousPlace, place))
     }
   }
 
@@ -528,13 +594,14 @@ export class TownScene extends Scene {
     if (path.length === 0) return
 
     let from = { x: avatar.container.x, y: avatar.container.y }
+    const speed = walkSpeed(pathLength(from, path))
     let lastDirection: Direction = 'down'
     const steps = path.map((to) => {
       const start = from
       from = to
       const direction = directionOf(to.x - start.x, to.y - start.y)
       lastDirection = direction
-      const duration = (Math.hypot(to.x - start.x, to.y - start.y) / WALK_SPEED_PX_PER_S) * 1000
+      const duration = (Math.hypot(to.x - start.x, to.y - start.y) / speed) * 1000
       return {
         x: to.x,
         y: to.y,
@@ -553,8 +620,8 @@ export class TownScene extends Scene {
     })
   }
 
-  /** Lower on screen = drawn in front, so queues overlap the right way. */
+  /** Sorted by the feet (the sprite's bottom edge), like buildings and props. */
   private updateDepth(avatar: AvatarSprite): void {
-    avatar.container.setDepth(2 + avatar.container.y / MAP_PIXELS)
+    avatar.container.setDepth(this.depthAt(avatar.container.y + (TILE_SIZE * TILE_SCALE) / 2))
   }
 }

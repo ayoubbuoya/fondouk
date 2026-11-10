@@ -3,91 +3,84 @@
  * Pure, no Phaser: unit-tested.
  *
  * **Standing.** A character stands at its `main_village` (the village with
- * most of its money). Several characters at one village queue on the road
- * in front of it, 3 abreast, towards the arena. All-cash characters
- * (`main_village = null`) stand in a grid inside the arena (the town square).
+ * most of its money), in a small grid on the forecourt below the building's
+ * door. All-cash characters (`main_village = null`) stand in the court.
  *
- * **Walking.** The roads all meet at the arena, so a walk to another place is
- * two straight steps: to the centre, then to the new spot. No pathfinding.
+ * **Walking.** Streets are hub-and-spoke (`medinaLayout.ts`): every place has
+ * a short street that ends on the main street. A walk to another place is
+ * "my street, along the main street, the other street backwards".
  *
  * ```text
- *   lend USDC ●  slot 0 1 2          ● lend USDT
- *              ╲   3 4 5            ╱
- *                ╲  ①  ┌──────┐   ╱       ① walk to the centre
- *                      │  ✕   │ ②         ② walk to the new slot
- *                      └──────┘
+ *   [lend USDC]                      [lend USDT]
+ *     ● ● ● ●                          ● ● ● ●
+ *        │ ①                              ▲ ③        ① down my street
+ *   ═════╧════════ main street ═══════════╧════      ② along the main street
+ *              ②  ───────────────────►               ③ up the other street
  * ```
  */
 
-import { MAP_PIXELS } from './townMap'
+import { COURT, type District, type Place, type Point } from './medinaLayout'
 
-export interface Point {
-  x: number
-  y: number
-}
+export type { Point }
 
 /** What the layout needs to know about one character. */
 export interface Standing {
   id: string
-  /** `null` = all cash, stands in the arena. */
+  /** `null` = all cash, stands in the court. */
   villageId: string | null
 }
 
-export const CENTER: Point = { x: MAP_PIXELS / 2, y: MAP_PIXELS / 2 }
+const DISTRICT_COLUMNS = 4
+const DISTRICT_COLUMN_GAP = 26
+const DISTRICT_ROW_GAP = 24
+/** First row: just below the door. */
+const DISTRICT_FIRST_ROW = 22
+/** 3 rows fit on a forecourt; extra characters share spots. */
+const DISTRICT_MAX_SLOTS = 12
 
-/** First queue row: just past the building (96 px tall when drawn ×2). */
-const QUEUE_START = 80
-const QUEUE_ROW_GAP = 24
-const QUEUE_COLUMN_GAP = 22
-const QUEUE_COLUMNS = 3
-/** Beyond this the queue would reach the arena; extra characters share slots. */
-const QUEUE_MAX_SLOTS = 12
+const COURT_COLUMNS = 4
+const COURT_GAP = 30
+const COURT_MAX_SLOTS = 16
 
-const ARENA_COLUMNS = 4
-const ARENA_GAP = 30
-/** Below the "Arena" label, which sits near the arena's top edge. */
-const ARENA_FIRST_ROW_Y = CENTER.y - 20
-const ARENA_MAX_SLOTS = 16
+/** Never slower than this, so short walks do not look rushed. */
+const MIN_WALK_SPEED_PX_PER_S = 200
+/** The longest walk still ends within F8's "within 5 s". */
+const MAX_WALK_SECONDS = 4.5
 
-/**
- * Spot number `index` in the queue in front of a village at `village`.
- * Rows go towards the centre, columns spread across the road.
- */
-export function queueSlot(village: Point, index: number): Point {
-  const slot = index % QUEUE_MAX_SLOTS
-  const dx = CENTER.x - village.x
-  const dy = CENTER.y - village.y
-  const length = Math.hypot(dx, dy) || 1
-  // Unit vector along the road, and the one across it.
-  const along = { x: dx / length, y: dy / length }
-  const across = { x: -along.y, y: along.x }
-
-  const row = Math.floor(slot / QUEUE_COLUMNS)
-  const column = (slot % QUEUE_COLUMNS) - (QUEUE_COLUMNS - 1) / 2 // -1, 0, 1
-  const distance = QUEUE_START + row * QUEUE_ROW_GAP
-  return {
-    x: village.x + along.x * distance + across.x * column * QUEUE_COLUMN_GAP,
-    y: village.y + along.y * distance + across.y * column * QUEUE_COLUMN_GAP,
-  }
+/** Spot number `index` in a grid of `columns`, centred under `origin`. */
+function gridSlot(origin: Point, index: number, columns: number, columnGap: number, rowGap: number): Point {
+  const row = Math.floor(index / columns)
+  const column = (index % columns) - (columns - 1) / 2 // e.g. -1.5 .. 1.5
+  return { x: origin.x + column * columnGap, y: origin.y + row * rowGap }
 }
 
-/** Spot number `index` in the arena grid (all-cash characters). */
-export function arenaSlot(index: number): Point {
-  const slot = index % ARENA_MAX_SLOTS
-  const row = Math.floor(slot / ARENA_COLUMNS)
-  const column = (slot % ARENA_COLUMNS) - (ARENA_COLUMNS - 1) / 2 // -1.5 .. 1.5
-  return { x: CENTER.x + column * ARENA_GAP, y: ARENA_FIRST_ROW_Y + row * ARENA_GAP }
+/** Spot number `index` on a district's forecourt. */
+export function districtSlot(district: District, index: number): Point {
+  const origin = { x: district.slotsOrigin.x, y: district.slotsOrigin.y + DISTRICT_FIRST_ROW }
+  return gridSlot(origin, index % DISTRICT_MAX_SLOTS, DISTRICT_COLUMNS, DISTRICT_COLUMN_GAP, DISTRICT_ROW_GAP)
+}
+
+/** Spot number `index` in the court (all-cash characters). */
+export function courtSlot(index: number): Point {
+  return gridSlot(COURT.slotsOrigin, index % COURT_MAX_SLOTS, COURT_COLUMNS, COURT_GAP, COURT_GAP)
+}
+
+/**
+ * The place a character belongs to: its village's district, or the court
+ * when it is all cash or the village has no district (unknown, not loaded).
+ */
+export function placeOf(villageId: string | null, districts: Map<string, District>): Place {
+  return (villageId !== null && districts.get(villageId)) || COURT
 }
 
 /**
  * The spot of every character. Characters are sorted by id inside each
- * group, so the same set always gets the same spots. A `villageId` that is
- * not in `villages` (unknown or not loaded yet) is treated as the arena.
+ * place, so the same set always gets the same spots.
  */
-export function layoutStandings(standings: Standing[], villages: Map<string, Point>): Map<string, Point> {
+export function layoutStandings(standings: Standing[], districts: Map<string, District>): Map<string, Point> {
   const groups = new Map<string | null, string[]>()
   for (const standing of standings) {
-    const key = standing.villageId !== null && villages.has(standing.villageId) ? standing.villageId : null
+    const key = standing.villageId !== null && districts.has(standing.villageId) ? standing.villageId : null
     const group = groups.get(key) ?? []
     group.push(standing.id)
     groups.set(key, group)
@@ -96,9 +89,9 @@ export function layoutStandings(standings: Standing[], villages: Map<string, Poi
   const spots = new Map<string, Point>()
   for (const [villageId, ids] of groups) {
     ids.sort()
+    const district = villageId === null ? undefined : districts.get(villageId)
     ids.forEach((id, index) => {
-      const village = villageId === null ? undefined : villages.get(villageId)
-      spots.set(id, village ? queueSlot(village, index) : arenaSlot(index))
+      spots.set(id, district ? districtSlot(district, index) : courtSlot(index))
     })
   }
   return spots
@@ -107,13 +100,39 @@ export function layoutStandings(standings: Standing[], villages: Map<string, Poi
 /**
  * The points to walk through, in order, ending at `to`.
  *
- * - same place (same village, or cash -> cash): one straight step, because
- *   only the spot in the queue changed;
- * - different place: through the arena centre, which every road reaches.
+ * - same place: one straight step, because only the spot changed;
+ * - another place: down `fromPlace`'s street, along the main street (both
+ *   streets end on it), and `toPlace`'s street backwards.
  *
  * Returns `[]` when the character is already there.
  */
-export function walkPath(from: Point, to: Point, samePlace: boolean): Point[] {
+export function walkPath(from: Point, to: Point, fromPlace: Place, toPlace: Place): Point[] {
   if (from.x === to.x && from.y === to.y) return []
-  return samePlace ? [to] : [CENTER, to]
+  if (fromPlace === toPlace) return [to]
+
+  const route = [...fromPlace.street, ...[...toPlace.street].reverse(), to]
+  // Drop a point equal to the one before it (zero-length step).
+  return route.filter((point, index) => {
+    const previous = index === 0 ? from : route[index - 1]
+    return point.x !== previous.x || point.y !== previous.y
+  })
+}
+
+/** Total length of a walk that starts at `from`. */
+export function pathLength(from: Point, path: Point[]): number {
+  let length = 0
+  let previous = from
+  for (const point of path) {
+    length += Math.hypot(point.x - previous.x, point.y - previous.y)
+    previous = point
+  }
+  return length
+}
+
+/**
+ * Walking speed for a walk of `length` pixels: the normal speed, or faster
+ * when the walk would otherwise take longer than `MAX_WALK_SECONDS`.
+ */
+export function walkSpeed(length: number): number {
+  return Math.max(MIN_WALK_SPEED_PX_PER_S, length / MAX_WALK_SECONDS)
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { createGame } from '../game/createGame'
+import type { LandmarkId } from '../game/medinaLayout'
 import { townBus, type AvatarMoved } from '../game/townBus'
 import { getAvatars, getVillageHistory, getVillages } from '../lib/api'
 import { connectLiveEvents, type LiveEvent } from '../lib/liveEvents'
@@ -14,8 +15,10 @@ export type Selection = { kind: 'avatar'; id: string } | { kind: 'village'; id: 
 interface TownCanvasProps {
   /** A sprite or a building was clicked. */
   onSelect: (selection: Selection) => void
-  /** The central arena area was clicked. */
+  /** The court statue (the arena) was clicked. */
   onOpenArena?: () => void
+  /** A landmark building was clicked: the Souk or the Hall of Fame. */
+  onOpenLandmark?: (landmark: LandmarkId) => void
   /** Every live event, so open panels can refresh (F8.5). */
   onLiveEvent: (event: LiveEvent) => void
 }
@@ -33,19 +36,22 @@ interface TownCanvasProps {
  * /ws avatar_move ─────────────────────────> "avatar:moved" (unknown id: reload /avatars)
  * /ws decision for an unknown id ──────────> reload /avatars (a new character)
  * scene "avatar:selected" / "village:selected" ─> onSelect
+ * scene "landmark:selected" ─> onOpenLandmark (Souk -> marketplace, Hall of Fame -> leaderboard)
  * unmount ─> close /ws, destroy the game
  * ```
  */
-export function TownCanvas({ onSelect, onOpenArena, onLiveEvent }: TownCanvasProps) {
+export function TownCanvas({ onSelect, onOpenArena, onOpenLandmark, onLiveEvent }: TownCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   // Callbacks change on every App render; refs keep the effect below mount-only.
   const onSelectRef = useRef(onSelect)
   const onOpenArenaRef = useRef(onOpenArena)
+  const onOpenLandmarkRef = useRef(onOpenLandmark)
   const onLiveEventRef = useRef(onLiveEvent)
   useEffect(() => {
     onSelectRef.current = onSelect
     onOpenArenaRef.current = onOpenArena
+    onOpenLandmarkRef.current = onOpenLandmark
     onLiveEventRef.current = onLiveEvent
   })
 
@@ -98,10 +104,12 @@ export function TownCanvas({ onSelect, onOpenArena, onLiveEvent }: TownCanvasPro
     const onAvatarSelected = (id: string) => onSelectRef.current({ kind: 'avatar', id })
     const onVillageSelected = (id: string) => onSelectRef.current({ kind: 'village', id })
     const onArenaSelected = () => onOpenArenaRef.current?.()
+    const onLandmarkSelected = (landmark: LandmarkId) => onOpenLandmarkRef.current?.(landmark)
     townBus.once('town:ready', onReady)
     townBus.on('avatar:selected', onAvatarSelected)
     townBus.on('village:selected', onVillageSelected)
     townBus.on('arena:selected', onArenaSelected)
+    townBus.on('landmark:selected', onLandmarkSelected)
     // A newly created character is paused, so no live event announces it.
     townBus.on('avatars:reload', reloadAvatars)
 
@@ -135,6 +143,7 @@ export function TownCanvas({ onSelect, onOpenArena, onLiveEvent }: TownCanvasPro
       townBus.off('avatar:selected', onAvatarSelected)
       townBus.off('village:selected', onVillageSelected)
       townBus.off('arena:selected', onArenaSelected)
+      townBus.off('landmark:selected', onLandmarkSelected)
       townBus.off('avatars:reload', reloadAvatars)
       stopLiveEvents()
       game.destroy(true)

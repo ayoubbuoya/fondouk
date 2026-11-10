@@ -15,6 +15,7 @@
  * | `avatar:selected`  | avatar id          | TownScene -> React |
  * | `village:selected` | village id         | TownScene -> React |
  * | `arena:selected`   | none               | TownScene -> React |
+ * | `landmark:selected`| `LandmarkId`       | TownScene -> React (a landmark building was clicked) |
  * | `arena:message`    | `ArenaMessage`     | React -> TownScene |
  * | `avatars:reload`   | none               | App -> TownCanvas (after a create, D63) |
  */

@@ -97,6 +97,7 @@ export default function App() {
         <TownCanvas
           onSelect={select}
           onOpenArena={() => open('arena')}
+          onOpenLandmark={open}
           onLiveEvent={onLiveEvent}
         />
         {tourStep !== null && (

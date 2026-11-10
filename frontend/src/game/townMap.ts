@@ -1,109 +1,95 @@
 /**
- * The town's ground, built as a 2D array of tile numbers in code
- * (HANDOFF D53: no Tiled editor). Pure, no Phaser: unit-tested.
+ * The medina's ground, built as a 2D array of tile numbers from the layout
+ * (`medinaLayout.ts`). Pure, no Phaser: unit-tested.
  *
  * ```text
- *  25 × 25 tiles, each 16 px drawn ×2 = 32 px  ->  an 800 × 800 canvas
+ *   sand everywhere  ->  light paving where a PAVED rectangle covers the tile
  *
- *   V . . . . . . . . . . V      V = village tile (from the DB map_x/map_y)
- *    ╲                   ╱       ╲ = road: a 2-tile wide 45° staircase
- *      ╲   ┌───────┐   ╱             from each village to the arena
- *        ╲ │ arena │ ╱           arena = 5 × 5 dirt patch with grass edges
- *        ╱ │  5×5  │ ╲
- *      ╱   └───────┘   ╲
- *   V                    V
+ *   ┌───────┐   a paved tile looks at its 4 neighbours and picks one of the
+ *   │0  1  2│   9 border tiles: no paving above = top row, no paving on the
+ *   │22 23 24│  left = left column, and so on. Paving on all 4 sides = 23.
+ *   │44 45 46│
+ *   └───────┘
  * ```
  *
  * Tile numbers are frames of `public/assets/tiles/floor.png` (Ninja
- * Adventure `TilesetFloor.png`, 22 tiles per row), picked by eye on 6 Nov.
+ * Adventure `TilesetFloor.png`, 22 tiles per row): the sand set in the
+ * top-left corner of the sheet. Picked by eye on 10 Nov.
  */
 
-export const TILE_SIZE = 16
-/** Pixel-art is drawn at 2×: one tile = 32 screen pixels. */
-export const TILE_SCALE = 2
-export const MAP_TILES = 25
-/** Must equal `CANVAS_SIZE` in `TownScene.ts` (800). */
-export const MAP_PIXELS = MAP_TILES * TILE_SIZE * TILE_SCALE
+import { PAVED, TILE_PX, WORLD_TILES } from './medinaLayout'
 
 export const TILES = {
-  grass: 264,
-  /** Grass with small details, sprinkled so the field is not flat. */
-  grassDetails: [244, 266, 267],
-  road: 177,
-  /** 3 × 3 autotile of a dirt patch on grass: [row][col]. */
-  arena: [
-    [154, 155, 156],
-    [176, 177, 178],
-    [198, 199, 200],
+  sand: 110,
+  /** Sand with small marks, sprinkled so the desert is not flat. */
+  sandDetails: [111, 112, 113, 114],
+  /** 3 × 3 border set of light paving on sand: [row][col]. */
+  paved: [
+    [0, 1, 2],
+    [22, 23, 24],
+    [44, 45, 46],
   ],
+  /** Paving with a crack or a stone, used rarely inside paved areas. */
+  pavedDetails: [88, 89],
 } as const
-
-/** The arena is 5 × 5 tiles around the centre tile (12, 12). */
-export const ARENA_TILES = 5
-const CENTER_TILE = Math.floor(MAP_TILES / 2)
-const ARENA_MIN = CENTER_TILE - Math.floor(ARENA_TILES / 2)
-const ARENA_MAX = ARENA_MIN + ARENA_TILES - 1
 
 export interface TilePoint {
   tx: number
   ty: number
 }
 
-/** Screen pixel (0–800) -> the tile under it, clamped to the map. */
+/** World pixel -> the tile under it, clamped to the world. */
 export function pixelToTile(x: number, y: number): TilePoint {
-  const size = TILE_SIZE * TILE_SCALE
-  const clamp = (value: number) => Math.min(MAP_TILES - 1, Math.max(0, Math.floor(value / size)))
-  return { tx: clamp(x), ty: clamp(y) }
+  const clamp = (value: number, max: number) => Math.min(max - 1, Math.max(0, Math.floor(value / TILE_PX)))
+  return { tx: clamp(x, WORLD_TILES.w), ty: clamp(y, WORLD_TILES.h) }
 }
 
-function insideArena(tx: number, ty: number): boolean {
-  return tx >= ARENA_MIN && tx <= ARENA_MAX && ty >= ARENA_MIN && ty <= ARENA_MAX
-}
-
-/** The arena tile at (tx, ty): corner, edge or centre of the 3 × 3 autotile. */
-function arenaTile(tx: number, ty: number): number {
-  const part = (value: number) => (value === ARENA_MIN ? 0 : value === ARENA_MAX ? 2 : 1)
-  return TILES.arena[part(ty)][part(tx)]
-}
-
-/**
- * A fixed "random" pattern: the same tile always gets the same grass, so the
- * map does not flicker when it is rebuilt.
- */
-function grassTile(tx: number, ty: number): number {
-  const hash = (tx * 7 + ty * 13) % 17
-  return hash < TILES.grassDetails.length ? TILES.grassDetails[hash] : TILES.grass
-}
-
-/**
- * Builds the ground: grass everywhere, the arena in the middle, and a road
- * from each village tile to the centre. Roads stop at the arena edge so its
- * grass border stays intact.
- *
- * @returns `rows[ty][tx]` tile numbers, `MAP_TILES` × `MAP_TILES`.
- */
-export function buildTownTiles(villages: TilePoint[]): number[][] {
-  const rows: number[][] = []
-  for (let ty = 0; ty < MAP_TILES; ty++) {
-    const row: number[] = []
-    for (let tx = 0; tx < MAP_TILES; tx++) {
-      row.push(insideArena(tx, ty) ? arenaTile(tx, ty) : grassTile(tx, ty))
-    }
-    rows.push(row)
-  }
-
-  for (const village of villages) {
-    const dx = CENTER_TILE - village.tx
-    const dy = CENTER_TILE - village.ty
-    const steps = Math.max(Math.abs(dx), Math.abs(dy))
-    for (let step = 0; step <= steps; step++) {
-      const tx = village.tx + Math.round((step * dx) / Math.max(steps, 1))
-      const ty = village.ty + Math.round((step * dy) / Math.max(steps, 1))
-      // Two tiles wide: the tile and its right-hand neighbour.
-      for (const x of [tx, tx + 1]) {
-        if (x < MAP_TILES && !insideArena(x, ty)) rows[ty][x] = TILES.road
+/** `mask[ty][tx]` = true where the ground is paved. */
+export function pavedMask(): boolean[][] {
+  const mask = Array.from({ length: WORLD_TILES.h }, () => new Array<boolean>(WORLD_TILES.w).fill(false))
+  for (const area of PAVED) {
+    for (let ty = area.y; ty < area.y + area.h; ty++) {
+      for (let tx = area.x; tx < area.x + area.w; tx++) {
+        if (ty >= 0 && ty < WORLD_TILES.h && tx >= 0 && tx < WORLD_TILES.w) mask[ty][tx] = true
       }
     }
   }
-  return rows
+  return mask
+}
+
+/**
+ * A fixed "random" number per tile: the same tile always looks the same, so
+ * the map does not change between page loads.
+ */
+function tileHash(tx: number, ty: number): number {
+  return (tx * 73 + ty * 151 + tx * ty * 7) % 97
+}
+
+function sandTile(tx: number, ty: number): number {
+  const hash = tileHash(tx, ty)
+  // About 1 tile in 8 gets a mark.
+  return hash < 12 ? TILES.sandDetails[hash % TILES.sandDetails.length] : TILES.sand
+}
+
+/** The border or centre tile for a paved tile, from its 4 neighbours. */
+function pavedTile(mask: boolean[][], tx: number, ty: number): number {
+  // Outside the world counts as paved, so a street leaving the map has no border there.
+  const paved = (x: number, y: number) => mask[y]?.[x] ?? true
+  const row = !paved(tx, ty - 1) ? 0 : !paved(tx, ty + 1) ? 2 : 1
+  const column = !paved(tx - 1, ty) ? 0 : !paved(tx + 1, ty) ? 2 : 1
+  if (row === 1 && column === 1) {
+    const hash = tileHash(tx, ty)
+    if (hash < 3) return TILES.pavedDetails[hash % TILES.pavedDetails.length]
+  }
+  return TILES.paved[row][column]
+}
+
+/**
+ * Builds the ground: sand everywhere, paving for streets, court and forecourts.
+ *
+ * @returns `rows[ty][tx]` tile numbers, `WORLD_TILES.h` × `WORLD_TILES.w`.
+ */
+export function buildGroundTiles(): number[][] {
+  const mask = pavedMask()
+  return mask.map((row, ty) => row.map((paved, tx) => (paved ? pavedTile(mask, tx, ty) : sandTile(tx, ty))))
 }
