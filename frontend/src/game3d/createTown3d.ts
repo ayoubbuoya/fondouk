@@ -1,16 +1,17 @@
 /**
  * Starts the 3D town inside `parent` (D76, D77).
  *
- * This file is the "stage crew": the renderer, the lights, the camera and
- * its controls, the click detection and the frame loop. What is *on* the
- * stage is `Town3d`.
+ * This file is the "stage crew": the renderer, the camera and its controls,
+ * the click detection and the frame loop. What is *on* the stage is `Town3d`;
+ * the evening light is `atmosphere.ts`, the glow is `postFx.ts` and the
+ * scripted camera moves are `cameraDirector.ts` (D78, D79).
  *
  * ```text
- *   every frame:  town.update(dt)   walks and animations
- *                 camera move       a running "camera:focus" glide, if any
- *                 controls.update   the user's pan / tilt / zoom, with easing
- *                 renderer.render   the 3D picture   (a <canvas>)
- *                 labels.render     the HTML labels  (a <div> on top of it)
+ *   every frame:  town.update(dt)      walks and animations
+ *                 director.update(dt)  opening flight, glide, follow, idle sway
+ *                 controls.update      the user's pan / tilt / zoom, with easing
+ *                 postFx.render        the 3D picture, with glow  (a <canvas>)
+ *                 labels.render        the HTML labels  (a <div> on top of it)
  * ```
  *
  * Mouse: drag = move, right-drag = turn and tilt, wheel = zoom, click = select.
@@ -18,16 +19,11 @@
 
 import {
   ACESFilmicToneMapping,
-  Color,
-  DirectionalLight,
-  Fog,
-  HemisphereLight,
   PCFShadowMap,
   PerspectiveCamera,
   Raycaster,
   Scene,
   Vector2,
-  Vector3,
   WebGLRenderer,
   type Material,
   type Mesh,
@@ -36,23 +32,14 @@ import {
 import { MapControls } from 'three/addons/controls/MapControls.js'
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 
-import { TOWN } from '../game/medinaLayout'
-import { townBus, type CameraFocus } from '../game/townBus'
-import {
-  clampToRect,
-  distanceLimits,
-  easeInOut,
-  fitDistance,
-  FOCUS_DISTANCE,
-  FOV_DEG,
-  START_TILT,
-  TILT_LIMITS,
-} from './cameraRig'
+import { GATE, TOWN } from '../game/medinaLayout'
+import { townBus } from '../game/townBus'
+import { addAtmosphere } from './atmosphere'
+import { createCameraDirector } from './cameraDirector'
+import { clampToRect, distanceLimits, fitDistance, FOV_DEG, MAX_TURN, START_TILT, TILT_LIMITS } from './cameraRig'
 import { rectCentre } from './coords'
+import { createPostFx } from './postFx'
 import { Town3d } from './Town3d'
-
-/** The warm haze the desert fades into; also the sky colour. */
-const SKY = 0xf2c58f
 
 /**
  * The HUD bar and the news strip float over the top and bottom of the canvas
@@ -61,11 +48,8 @@ const SKY = 0xf2c58f
  */
 const HUD_INSETS = { top: 60, bottom: 36 } as const
 
-/** How far the user may turn the town, in radians: house fronts face south, so never show their backs. */
-const MAX_TURN = 0.9
 /** A pointer that moved less than this between down and up was a click, not a drag (pixels). */
 const CLICK_SLOP = 6
-const FOCUS_SECONDS = 0.6
 
 const TOWN_CENTRE = rectCentre(TOWN)
 const TOWN_GROUND = { x: TOWN.x, z: TOWN.y, w: TOWN.w, d: TOWN.h }
@@ -73,16 +57,6 @@ const TOWN_GROUND = { x: TOWN.x, z: TOWN.y, w: TOWN.w, d: TOWN.h }
 export interface Town3dHandle {
   /** Stops the loop and frees everything. The caller must call it on unmount. */
   destroy(): void
-}
-
-/** A camera glide from where it is to a new view. */
-interface Glide {
-  fromTarget: Vector3
-  toTarget: Vector3
-  /** Camera position minus target. */
-  fromOffset: Vector3
-  toOffset: Vector3
-  elapsed: number
 }
 
 /** Walks up from a hit mesh to the first object that knows what a click on it means. */
@@ -96,7 +70,9 @@ function clickHandler(hit: Object3D | null): (() => void) | undefined {
 
 export function createTown3d(parent: HTMLElement): Town3dHandle {
   // ---- renderer: the 3D canvas, and the HTML label layer over it ----
-  const renderer = new WebGLRenderer({ antialias: true })
+  // No `antialias` here: the picture is drawn off screen first, and `postFx`
+  // smooths the edges there.
+  const renderer = new WebGLRenderer()
   // Sharper on dense screens, but capped: 3× the pixels is 9× the work.
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.shadowMap.enabled = true
@@ -109,27 +85,9 @@ export function createTown3d(parent: HTMLElement): Town3dHandle {
   labels.domElement.className = 'town3d-labels'
   parent.append(labels.domElement)
 
-  // ---- scene and lights ----
+  // ---- scene ----
   const scene = new Scene()
-  scene.background = new Color(SKY)
-  scene.fog = new Fog(SKY, 90, 260)
-  // Soft light from the sky and bounced off the sand, so shadows are not black.
-  scene.add(new HemisphereLight(0xfff3dc, 0xc89460, 1.3))
-  // The sun: low and warm, from the south-west, so buildings throw long shadows.
-  const sun = new DirectionalLight(0xffe0b0, 2.8)
-  sun.position.set(TOWN_CENTRE.x - 30, 45, TOWN_CENTRE.z + 25)
-  sun.target.position.set(TOWN_CENTRE.x, 0, TOWN_CENTRE.z)
-  sun.castShadow = true
-  sun.shadow.mapSize.set(2048, 2048)
-  sun.shadow.camera.left = -48
-  sun.shadow.camera.right = 48
-  sun.shadow.camera.top = 40
-  sun.shadow.camera.bottom = -40
-  sun.shadow.camera.near = 1
-  sun.shadow.camera.far = 160
-  // Stops flat surfaces from shadowing themselves in stripes.
-  sun.shadow.bias = -0.0005
-  scene.add(sun, sun.target)
+  addAtmosphere(scene)
 
   const town = new Town3d(scene)
 
@@ -144,10 +102,9 @@ export function createTown3d(parent: HTMLElement): Town3dHandle {
   controls.minAzimuthAngle = -MAX_TURN
   controls.maxAzimuthAngle = MAX_TURN
 
-  /** The opening view, also where a `camera:focus` reset returns to. */
-  const home = { target: new Vector3(), offset: new Vector3() }
-  let cameraPlaced = false
-  let glide: Glide | undefined
+  // Both read the renderer's pixel ratio and tone mapping, set above.
+  const postFx = createPostFx(renderer, scene, camera)
+  const director = createCameraDirector({ camera, controls, town, element: parent, gate: rectCentre(GATE.tiles) })
 
   const onControlsChange = () => {
     // Keep the looked-at point over the town; move the camera by the same
@@ -164,15 +121,16 @@ export function createTown3d(parent: HTMLElement): Town3dHandle {
   controls.addEventListener('change', onControlsChange)
 
   /**
-   * Called at start and whenever the canvas changes size. The first time it
-   * shows the whole town; later it only updates the zoom limits, so the
-   * user's view is kept.
+   * Called at start and whenever the canvas changes size. It works out the
+   * view that shows the whole town (the "home" view) and the zoom limits. The
+   * director flies there the first time and keeps the user's view afterwards.
    */
   const fit = () => {
     const width = parent.clientWidth
     const height = parent.clientHeight
     if (width <= 0 || height <= 0) return // the panel is not laid out yet
     renderer.setSize(width, height)
+    postFx.setSize(width, height)
     labels.setSize(width, height)
     camera.aspect = width / height
     camera.updateProjectionMatrix()
@@ -184,47 +142,14 @@ export function createTown3d(parent: HTMLElement): Town3dHandle {
 
     // Looking a little south of the centre lifts the town on screen, away
     // from the taller HUD bar at the top.
-    home.target.set(TOWN_CENTRE.x, 0, TOWN_CENTRE.z + 1)
-    home.offset.set(0, distance * Math.cos(START_TILT), distance * Math.sin(START_TILT))
-    if (!cameraPlaced) {
-      cameraPlaced = true
-      controls.target.copy(home.target)
-      camera.position.copy(home.target).add(home.offset)
-      controls.update()
-    }
+    director.setHome(
+      { target: { x: TOWN_CENTRE.x, z: TOWN_CENTRE.z + 1 }, distance, tilt: START_TILT, turn: 0 },
+      limits,
+    )
   }
   const resizeObserver = new ResizeObserver(fit)
   resizeObserver.observe(parent)
   fit()
-
-  /** Glides to a character, a village, a landmark or back home (used by the Judge Tour). */
-  const onFocus = (focus: CameraFocus) => {
-    const point = focus.reset ? null : town.focusPoint(focus)
-    if (!focus.reset && !point) return // its target is not in the town
-    const fromOffset = camera.position.clone().sub(controls.target)
-    glide = {
-      fromTarget: controls.target.clone(),
-      fromOffset,
-      toTarget: point ? new Vector3(point.x, 0, point.z) : home.target.clone(),
-      // Same viewing angle, closer in.
-      toOffset: point ? fromOffset.clone().setLength(FOCUS_DISTANCE) : home.offset.clone(),
-      elapsed: 0,
-    }
-    controls.enabled = false // the user's drag must not fight the glide
-  }
-  townBus.on('camera:focus', onFocus)
-
-  const stepGlide = (deltaSeconds: number) => {
-    if (!glide) return
-    glide.elapsed += deltaSeconds
-    const progress = easeInOut(glide.elapsed / FOCUS_SECONDS)
-    controls.target.lerpVectors(glide.fromTarget, glide.toTarget, progress)
-    camera.position.lerpVectors(glide.fromOffset, glide.toOffset, progress).add(controls.target)
-    if (glide.elapsed >= FOCUS_SECONDS) {
-      glide = undefined
-      controls.enabled = true
-    }
-  }
 
   // ---- clicks ----
   const raycaster = new Raycaster()
@@ -267,9 +192,9 @@ export function createTown3d(parent: HTMLElement): Town3dHandle {
     const deltaSeconds = Math.min(1, (time - lastTime) / 1000)
     lastTime = time
     town.update(deltaSeconds)
-    stepGlide(deltaSeconds)
+    director.update(deltaSeconds)
     controls.update()
-    renderer.render(scene, camera)
+    postFx.render()
     labels.render(scene, camera)
   }
   frame = requestAnimationFrame(loop)
@@ -287,7 +212,7 @@ export function createTown3d(parent: HTMLElement): Town3dHandle {
       window.clearTimeout(readyTimer)
       cancelAnimationFrame(frame)
       resizeObserver.disconnect()
-      townBus.off('camera:focus', onFocus)
+      director.dispose()
       controls.removeEventListener('change', onControlsChange)
       controls.dispose()
       town.dispose()
@@ -309,6 +234,7 @@ export function createTown3d(parent: HTMLElement): Town3dHandle {
         }
       })
       for (const disposable of disposables) disposable.dispose()
+      postFx.dispose()
       renderer.dispose()
       renderer.domElement.remove()
       labels.domElement.remove()

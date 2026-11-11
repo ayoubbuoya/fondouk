@@ -79,6 +79,56 @@ function material(color: number): MeshStandardMaterial {
   return found
 }
 
+// ---- things that glow (D78) ----
+
+/** Lamp light behind a window or inside a lantern. */
+const LAMP_LIGHT = 0xffb24d
+/**
+ * How many times brighter than white a glowing material shines. The bloom in
+ * `postFx.ts` only catches colours above 1× white, so these numbers decide
+ * what glows and how strongly.
+ */
+const GLOW = { lamp: 4, gold: 1.6 } as const
+
+const glowMaterials = new Map<string, MeshStandardMaterial>()
+
+/** One glowing material per colour and strength: it gives off its own light, whatever the sun does. */
+function glowMaterial(color: number, strength: number): MeshStandardMaterial {
+  const key = `${color}:${strength}`
+  let found = glowMaterials.get(key)
+  if (!found) {
+    found = new MeshStandardMaterial({ color, emissive: color, emissiveIntensity: strength, roughness: 0.9 })
+    glowMaterials.set(key, found)
+  }
+  return found
+}
+
+/** Like `add`, but the shape glows and throws no shadow (a light source does not shade the ground). */
+function addGlow(
+  group: Group,
+  geometry: BufferGeometry,
+  color: number,
+  strength: number,
+  size: [number, number, number],
+  at: [number, number, number],
+): Mesh {
+  const mesh = add(group, geometry, color, size, at)
+  mesh.material = glowMaterial(color, strength)
+  mesh.castShadow = false
+  return mesh
+}
+
+/**
+ * A small lantern: a dark cap over a lamp. `lit = false` draws the lamp dark
+ * (a stale village has its lights out).
+ */
+function lantern(group: Group, lit: boolean, tone: (color: number) => number, at: [number, number, number]): void {
+  const [x, y, z] = at
+  if (lit) addGlow(group, BOX, LAMP_LIGHT, GLOW.lamp, [0.14, 0.2, 0.14], [x, y, z])
+  else add(group, BOX, tone(WOOD_DARK), [0.14, 0.2, 0.14], [x, y, z])
+  add(group, BOX, tone(WOOD_DARK), [0.2, 0.05, 0.2], [x, y + 0.2, z])
+}
+
 /** A washed-out version of a colour, for a village whose data is stale. */
 function greyed(color: number): number {
   const r = (color >> 16) & 0xff
@@ -136,9 +186,10 @@ const STOREY = 1.8
 
 /**
  * A flat-roofed medina house, `w` wide and `d` deep, front towards +z.
- * `tone` lets a stale village draw the same house washed out.
+ * `tone` lets a stale village draw the same house washed out, and `lit`
+ * says whether its windows and door lantern are on.
  */
-function house(w: number, d: number, style: HouseStyle, tone: (color: number) => number): Group {
+function house(w: number, d: number, style: HouseStyle, tone: (color: number) => number, lit: boolean): Group {
   const group = new Group()
   const front = d / 2
   add(group, BOX, tone(style.wall), [w * 0.94, STOREY, d * 0.94], [0, 0, 0])
@@ -152,10 +203,14 @@ function house(w: number, d: number, style: HouseStyle, tone: (color: number) =>
   // Door: a dark slab with a round top, slightly in front of the wall.
   add(group, BOX, tone(style.door), [0.7, 0.9, 0.1], [0, 0, front - 0.02])
   add(group, SPHERE, tone(style.door), [0.7, 0.7, 0.1], [0, 0.55, front - 0.02])
+  lantern(group, lit, tone, [0.55, 1.1, front + 0.08])
   if (w >= 3) {
     for (const side of [-1, 1]) {
-      add(group, BOX, tone(style.trim), [0.5, 0.5, 0.08], [side * (w / 2 - 0.75), 0.95, front - 0.03])
-      add(group, BOX, tone(WOOD_DARK), [0.36, 0.36, 0.1], [side * (w / 2 - 0.75), 1.02, front - 0.03])
+      const pane: [number, number, number] = [side * (w / 2 - 0.75), 1.02, front - 0.03]
+      add(group, BOX, tone(style.trim), [0.5, 0.5, 0.08], [pane[0], 0.95, pane[2]])
+      // The window pane: lamp light from inside, or dark when the lights are out.
+      if (lit) addGlow(group, BOX, LAMP_LIGHT, GLOW.lamp, [0.36, 0.36, 0.1], pane)
+      else add(group, BOX, tone(WOOD_DARK), [0.36, 0.36, 0.1], pane)
     }
   }
   if (style.awning) {
@@ -217,7 +272,7 @@ function monument(): Group {
   add(group, BOX, STONE, [2, 0.35, 2], [0, 0, 0])
   add(group, BOX, PLASTER_WHITE, [1.4, 0.6, 1.4], [0, 0.35, 0])
   add(group, PYRAMID, GOLD, [0.9, 3.2, 0.9], [0, 0.95, 0])
-  add(group, SPHERE, GOLD, [0.55, 0.55, 0.55], [0, 4.0, 0])
+  addGlow(group, SPHERE, GOLD, GLOW.gold, [0.55, 0.55, 0.55], [0, 4.0, 0])
   return group
 }
 
@@ -228,7 +283,7 @@ function fountain(): Group {
   add(group, CYLINDER, WATER, [1.7, 0.06, 1.7], [0, 0.42, 0])
   add(group, CYLINDER, PLASTER_WHITE, [0.35, 1.3, 0.35], [0, 0.4, 0])
   add(group, CYLINDER, STONE, [0.9, 0.12, 0.9], [0, 1.7, 0])
-  add(group, SPHERE, GOLD, [0.5, 0.5, 0.5], [0, 1.8, 0])
+  addGlow(group, SPHERE, GOLD, GLOW.gold, [0.5, 0.5, 0.5], [0, 1.8, 0])
   return group
 }
 
@@ -341,7 +396,11 @@ function tower(): Group {
 /** The town gate: two piers, a beam across, and a banner colour on top. */
 function gate(): Group {
   const group = new Group()
-  for (const side of [-1, 1]) add(group, BOX, WALL, [0.9, 3.2, 1], [side * 1.5, 0, 0])
+  for (const side of [-1, 1]) {
+    add(group, BOX, WALL, [0.9, 3.2, 1], [side * 1.5, 0, 0])
+    // A lantern on the front of each pier: the visible source of the gate's lamp light.
+    lantern(group, true, same, [side * 1.5, 1.9, 0.58])
+  }
   add(group, BOX, WALL, [3.9, 0.8, 1], [0, 2.6, 0])
   add(group, BOX, TERRACOTTA, [4.1, 0.16, 1.1], [0, 3.4, 0])
   for (const x of [-1.6, -0.8, 0, 0.8, 1.6]) add(group, BOX, WALL, [0.4, 0.35, 1], [x, 3.56, 0])
@@ -361,40 +420,40 @@ const same = (color: number) => color
 
 /**
  * The 3D builder of each frame. `w` is the frame's width in tiles;
- * `tone` recolours it (used for stale villages).
+ * `tone` recolours it and `lit` switches its lamps on (both used for stale villages).
  */
-const BUILDERS: Record<FrameName, (w: number, tone: (color: number) => number) => Built> = {
-  houseRed: (w, tone) => ({
-    object: house(w, 2.6, { wall: PLASTER, trim: TERRACOTTA, door: WOOD_DARK, awning: true, dome: PLASTER_WHITE }, tone),
+const BUILDERS: Record<FrameName, (w: number, tone: (color: number) => number, lit: boolean) => Built> = {
+  houseRed: (w, tone, lit) => ({
+    object: house(w, 2.6, { wall: PLASTER, trim: TERRACOTTA, door: WOOD_DARK, awning: true, dome: PLASTER_WHITE }, tone, lit),
     depth: 2.6,
   }),
-  houseOrange: (w, tone) => ({
-    object: house(w, 2.6, { wall: PLASTER_WARM, trim: ORANGE, door: TEAL, awning: true, upperFloor: true }, tone),
+  houseOrange: (w, tone, lit) => ({
+    object: house(w, 2.6, { wall: PLASTER_WARM, trim: ORANGE, door: TEAL, awning: true, upperFloor: true }, tone, lit),
     depth: 2.6,
   }),
-  houseSand: (w, tone) => ({ object: house(w, 2.4, { wall: PLASTER_WARM, trim: WALL, door: WOOD }, tone), depth: 2.4 }),
-  shop: (w, tone) => ({
-    object: house(w, 2.2, { wall: PLASTER_WHITE, trim: TEAL, door: WOOD_DARK, awning: true }, tone),
+  houseSand: (w, tone, lit) => ({ object: house(w, 2.4, { wall: PLASTER_WARM, trim: WALL, door: WOOD }, tone, lit), depth: 2.4 }),
+  shop: (w, tone, lit) => ({
+    object: house(w, 2.2, { wall: PLASTER_WHITE, trim: TEAL, door: WOOD_DARK, awning: true }, tone, lit),
     depth: 2.2,
   }),
-  smithy: (w, tone) => ({
-    object: house(w, 2.4, { wall: STONE, trim: WOOD_DARK, door: WOOD_DARK, chimney: true }, tone),
+  smithy: (w, tone, lit) => ({
+    object: house(w, 2.4, { wall: STONE, trim: WOOD_DARK, door: WOOD_DARK, chimney: true }, tone, lit),
     depth: 2.4,
   }),
-  dome: (w, tone) => ({
-    object: house(w, 2.4, { wall: PLASTER_WHITE, trim: PLASTER_WARM, door: TEAL, dome: TEAL }, tone),
+  dome: (w, tone, lit) => ({
+    object: house(w, 2.4, { wall: PLASTER_WHITE, trim: PLASTER_WARM, door: TEAL, dome: TEAL }, tone, lit),
     depth: 2.4,
   }),
-  bigHouse: (w, tone) => ({
-    object: house(w, 3.2, { wall: PLASTER, trim: TERRACOTTA, door: WOOD_DARK, upperFloor: true, dome: PLASTER_WHITE }, tone),
+  bigHouse: (w, tone, lit) => ({
+    object: house(w, 3.2, { wall: PLASTER, trim: TERRACOTTA, door: WOOD_DARK, upperFloor: true, dome: PLASTER_WHITE }, tone, lit),
     depth: 3.2,
   }),
   kiln: () => ({ object: kiln(), depth: 2.6 }),
-  hut: (w, tone) => ({
-    object: house(w, 3, { wall: PLASTER_WARM, trim: ORANGE, door: WOOD, upperFloor: true }, tone),
+  hut: (w, tone, lit) => ({
+    object: house(w, 3, { wall: PLASTER_WARM, trim: ORANGE, door: WOOD, upperFloor: true }, tone, lit),
     depth: 3,
   }),
-  brickHouse: (w, tone) => ({ object: house(w, 2.2, { wall: BRICK, trim: WOOD_DARK, door: WOOD_DARK }, tone), depth: 2.2 }),
+  brickHouse: (w, tone, lit) => ({ object: house(w, 2.2, { wall: BRICK, trim: WOOD_DARK, door: WOOD_DARK }, tone, lit), depth: 2.2 }),
   arch: () => ({ object: gate(), depth: 1 }),
   statueBear: () => ({ object: monument(), depth: 2 }),
   statueOrb: () => ({ object: fountain(), depth: 2 }),
@@ -429,11 +488,11 @@ const BUILDERS: Record<FrameName, (w: number, tone: (color: number) => number) =
  * Builds a frame and puts it on its layout rectangle: centred left-right,
  * front on the rectangle's bottom edge (see the picture at the top).
  *
- * @param stale draws it washed out (a village with stale data)
+ * @param stale draws it washed out, with its lights off (a village with stale data)
  */
 export function buildFrame(frame: FrameName, tiles: TileRect, stale = false): Group {
   const width = FRAMES[frame][0]
-  const { object, depth } = BUILDERS[frame](width, stale ? greyed : same)
+  const { object, depth } = BUILDERS[frame](width, stale ? greyed : same, !stale)
   object.position.set(tiles.x + tiles.w / 2, 0, tiles.y + tiles.h - depth / 2)
   return object
 }

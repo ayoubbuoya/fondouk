@@ -27,8 +27,21 @@ const MAX_DISTANCE_FACTOR = 1.35
 /** Empty space kept around the town in the opening view. */
 const FIT_MARGIN = 1.06
 
+/** How far the user may turn the town, in radians: house fronts face south, so never show their backs. */
+export const MAX_TURN = 0.9
+
 /** Distance used when the Judge Tour focuses on one building or character. */
 export const FOCUS_DISTANCE = 22
+
+/** How long the opening flight from the gate to the whole-town view takes. */
+export const FLY_IN_SECONDS = 4
+/** Seconds without any mouse or touch input before the view starts to sway. */
+export const IDLE_SECONDS = 20
+/** The idle sway: a slow turn left and right. `amplitude` in radians, `period` in seconds. */
+export const IDLE_SWAY = { amplitude: 0.22, period: 36 } as const
+
+/** Where the opening flight starts: close to the gate, low, and turned a little to one side. */
+const OPENING = { distance: 16, turn: -0.55, tiltMargin: 0.02 } as const
 
 export interface ViewSize {
   w: number
@@ -76,6 +89,74 @@ export function clampToRect(
     x: Math.min(rect.x + rect.w, Math.max(rect.x, x)),
     z: Math.min(rect.z + rect.d, Math.max(rect.z, z)),
   }
+}
+
+/**
+ * A full camera view, in the words of the picture at the top of this file.
+ *
+ * ```text
+ *   top view            turn = 0   the camera is south of the target, looking north
+ *        N              turn > 0   the camera has moved towards the east
+ *        ●  target
+ *       ╱│
+ *      ╱ │  turn
+ *     ◉  S
+ * ```
+ */
+export interface CameraPose {
+  /** The ground point the camera looks at. */
+  target: { x: number; z: number }
+  distance: number
+  /** Angle from straight down, in radians. */
+  tilt: number
+  /** Angle around the up axis, in radians. */
+  turn: number
+}
+
+/** Where the camera is, relative to the point it looks at (y is up). */
+export function poseOffset(pose: CameraPose): { x: number; y: number; z: number } {
+  const flat = pose.distance * Math.sin(pose.tilt)
+  return {
+    x: flat * Math.sin(pose.turn),
+    y: pose.distance * Math.cos(pose.tilt),
+    z: flat * Math.cos(pose.turn),
+  }
+}
+
+/** The view a share `t` (0..1) of the way from `from` to `to`. */
+export function lerpPose(from: CameraPose, to: CameraPose, t: number): CameraPose {
+  const mix = (a: number, b: number) => a + (b - a) * t
+  return {
+    target: { x: mix(from.target.x, to.target.x), z: mix(from.target.z, to.target.z) },
+    distance: mix(from.distance, to.distance),
+    tilt: mix(from.tilt, to.tilt),
+    turn: mix(from.turn, to.turn),
+  }
+}
+
+/**
+ * The first frame of the opening flight: looking at the gate from outside
+ * the wall, as low as the user is allowed to tilt.
+ *
+ * It must stay inside the limits the controls enforce (`limits`,
+ * `TILT_LIMITS`, `MAX_TURN`): the controls clamp the camera every frame, even
+ * during a scripted move, so a pose outside them would jump.
+ */
+export function openingPose(gate: { x: number; z: number }, limits: { min: number; max: number }): CameraPose {
+  return {
+    target: { x: gate.x, z: gate.z },
+    distance: Math.min(limits.max, Math.max(limits.min, OPENING.distance)),
+    tilt: TILT_LIMITS.max - OPENING.tiltMargin,
+    turn: OPENING.turn,
+  }
+}
+
+/**
+ * How far the idle view is turned away from where the sway began, `seconds`
+ * after it began. Starts at 0, so the sway never begins with a jump.
+ */
+export function idleSway(seconds: number): number {
+  return IDLE_SWAY.amplitude * Math.sin((seconds / IDLE_SWAY.period) * Math.PI * 2)
 }
 
 /** Smooth start and stop for camera moves: 0 -> 0, 1 -> 1, slow at both ends. */
