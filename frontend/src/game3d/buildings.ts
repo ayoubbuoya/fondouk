@@ -129,6 +129,35 @@ function lantern(group: Group, lit: boolean, tone: (color: number) => number, at
   add(group, BOX, tone(WOOD_DARK), [0.2, 0.05, 0.2], [x, y + 0.2, z])
 }
 
+// ---- parts that move (D81) ----
+
+/**
+ * What `ambient.ts` does with a part labelled `userData.ambient`:
+ * `sway` = a palm crown rocks, `flutter` = a banner cloth swings round its
+ * pole, `smoke` = puffs rise from here, `fountain` = water drops jump from here.
+ */
+export type AmbientKind = 'sway' | 'flutter' | 'smoke' | 'fountain'
+
+/** An empty point labelled for `ambient.ts` (where smoke or water starts). */
+function marker(group: Group, kind: AmbientKind, at: [number, number, number]): void {
+  const point = new Group()
+  point.position.set(...at)
+  point.userData.ambient = kind
+  group.add(point)
+}
+
+/**
+ * A group that turns around its own origin, labelled for `ambient.ts`.
+ * Shapes added to it move with it; `at` is where the turning point is.
+ */
+function pivot(group: Group, kind: AmbientKind, at: [number, number, number]): Group {
+  const turning = new Group()
+  turning.position.set(...at)
+  turning.userData.ambient = kind
+  group.add(turning)
+  return turning
+}
+
 /** A washed-out version of a colour, for a village whose data is stale. */
 function greyed(color: number): number {
   const r = (color >> 16) & 0xff
@@ -231,6 +260,7 @@ function house(w: number, d: number, style: HouseStyle, tone: (color: number) =>
   if (style.chimney) {
     add(group, BOX, tone(STONE), [0.5, 1.1, 0.5], [w / 2 - 0.6, STOREY, -d / 2 + 0.6])
     add(group, BOX, tone(WOOD_DARK), [0.36, 0.1, 0.36], [w / 2 - 0.6, STOREY + 1.1, -d / 2 + 0.6])
+    marker(group, 'smoke', [w / 2 - 0.6, STOREY + 1.25, -d / 2 + 0.6])
   }
   return group
 }
@@ -284,6 +314,7 @@ function fountain(): Group {
   add(group, CYLINDER, PLASTER_WHITE, [0.35, 1.3, 0.35], [0, 0.4, 0])
   add(group, CYLINDER, STONE, [0.9, 0.12, 0.9], [0, 1.7, 0])
   addGlow(group, SPHERE, GOLD, GLOW.gold, [0.5, 0.5, 0.5], [0, 1.8, 0])
+  marker(group, 'fountain', [0, 2.15, 0])
   return group
 }
 
@@ -343,7 +374,8 @@ function jar(): Group {
 function banner(cloth: number): Group {
   const group = new Group()
   add(group, CYLINDER, WOOD_DARK, [0.08, 2.4, 0.08], [0, 0, 0])
-  add(group, BOX, cloth, [0.5, 1.1, 0.05], [0.3, 1.2, 0])
+  // The cloth hangs from a pivot on the pole, so it swings round the pole, not round its own middle.
+  add(pivot(group, 'flutter', [0, 0, 0]), BOX, cloth, [0.5, 1.1, 0.05], [0.3, 1.2, 0])
   add(group, SPHERE, GOLD, [0.16, 0.16, 0.16], [0, 2.38, 0])
   return group
 }
@@ -361,13 +393,15 @@ function tent(): Group {
 function palm(): Group {
   const group = new Group()
   add(group, CYLINDER, WOOD, [0.22, 2.2, 0.22], [0, 0, 0])
+  // The leaves hang from one crown at the top of the trunk, so they sway together.
+  const crown = pivot(group, 'sway', [0, 2.1, 0])
   for (let i = 0; i < 6; i++) {
     const angle = (i / 6) * Math.PI * 2
-    const leaf = add(group, BOX, LEAF, [0.3, 0.06, 1.3], [Math.sin(angle) * 0.55, 2.05, Math.cos(angle) * 0.55])
+    const leaf = add(crown, BOX, LEAF, [0.3, 0.06, 1.3], [Math.sin(angle) * 0.55, -0.05, Math.cos(angle) * 0.55])
     leaf.rotation.y = angle
     leaf.rotation.x = 0.45
   }
-  add(group, SPHERE, LEAF, [0.4, 0.3, 0.4], [0, 2.1, 0])
+  add(crown, SPHERE, LEAF, [0.4, 0.3, 0.4], [0, 0, 0])
   return group
 }
 
@@ -412,6 +446,7 @@ function kiln(): Group {
   add(group, CYLINDER, BRICK, [2.4, 1.6, 2.4], [0, 0, 0])
   add(group, DOME, BRICK, [2.4, 2, 2.4], [0, 1.6, 0])
   add(group, CYLINDER, WOOD_DARK, [0.5, 0.5, 0.5], [0, 2.4, 0])
+  marker(group, 'smoke', [0, 2.95, 0])
   add(group, SPHERE, WOOD_DARK, [0.8, 0.9, 0.12], [0, 0, 1.2])
   return group
 }

@@ -8,9 +8,11 @@
  *   "villages:updated"  ─────────►  district buildings + signs
  *   "village:history"   ─────────►  the line on a sign
  *   "avatars:updated"   ─────────►  add / remove / re-place characters
- *   "avatar:moved"      ─────────►  walk along the streets (walkPath -> walker)
+ *   "villages:updated"  ─────────►  gold rings by APY (effects.ts, D80)
+ *   "avatar:moved"      ─────────►  coins fly to the new village (D80), then
+ *                                   walk along the streets (walkPath -> walker)
  *   "arena:message"     ─────────►  speech bubble
- *   "avatar:milestone"  ─────────►  new level on the tag + floating text
+ *   "avatar:milestone"  ─────────►  new level on the tag + floating text + a cheer (D80)
  *   "demo:spawn_clone"  ─────────►  one extra character (Judge Tour)
  *
  *   click a building / sign / character  ─►  "village:selected", "avatar:selected",
@@ -19,7 +21,8 @@
  *
  * Positions come from `medinaLayout.ts` and `walkPath.ts`, in layout pixels;
  * `coords.ts` turns them into 3D. This class owns no camera and no renderer:
- * see `createTown3d.ts`.
+ * see `createTown3d.ts`. Palms, banners, smoke, the fountain and the small
+ * gestures of standing merchants are background life (`ambient.ts`, D81).
  */
 
 import { Box3, CylinderGeometry, Mesh, MeshBasicMaterial, type Object3D, type Scene } from 'three'
@@ -44,10 +47,13 @@ import { townBus, type AvatarMilestone, type AvatarMoved, type CameraFocus, type
 import { layoutStandings, layoutTagTiers, pathLength, placeOf, walkPath, walkSpeed } from '../game/walkPath'
 import type { ArenaMessage, AvatarSummary, Village, YieldPoint } from '../lib/api'
 import { nameTag } from '../lib/progression'
+import { Ambient } from './ambient'
 import { buildFrame, buildGround, buildProp } from './buildings'
-import { CHARACTER_HEIGHT, CharacterBody } from './characters'
+import { CHARACTER_HEIGHT, CharacterBody, CHEER_CLIP, IDLE_GESTURES } from './characters'
 import { facingAngle, rectCentre, toGround, type GroundPoint } from './coords'
+import { CoinFlights, YieldGlow, type RingSpec } from './effects'
 import { AvatarLabel, createLandmarkSign, VillageSign } from './labels'
+import { apyGlowLevels, idleGestureDelay } from './motion'
 import { walkAt } from './walker'
 
 /** Redraw so "stale · N min ago" stays true between hourly updates. */
@@ -62,6 +68,9 @@ const LABEL_GAP = 0.35
  */
 const PICK_SHAPE = new CylinderGeometry(0.5, 0.5, CHARACTER_HEIGHT * 1.1, 8)
 const PICK_MATERIAL = new MeshBasicMaterial({ visible: false })
+
+/** How far the yield ring reaches past the edge of a village building, in tiles. */
+const RING_MARGIN = 1.2
 
 interface Walk {
   from: Point
@@ -86,6 +95,10 @@ interface Avatar3d {
   /** Where it is right now. */
   position: Point
   walk?: Walk
+  /** A level-up cheer that could not play yet (walking, or the model still loading). */
+  cheerPending: boolean
+  /** Seconds until this merchant's next small gesture, while standing. */
+  nextGesture: number
 }
 
 /** The highest point of something built, to hang a label above it. */
@@ -109,12 +122,24 @@ export class Town3d {
   private readonly scene: Scene
   private readonly unsubscribe: () => void
   private readonly staleTimer: number
+  private readonly coins: CoinFlights
+  private readonly yieldGlow: YieldGlow
+  private readonly ambient: Ambient
+  /**
+   * Visitors who asked their system for less motion get no background life
+   * (D81). Coins, rings and cheers stay: they carry meaning (D80).
+   */
+  private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
   constructor(scene: Scene) {
     this.scene = scene
     scene.add(buildGround())
     for (const prop of [...wallProps(), GATE, ...DECOR_BUILDINGS, ...DECOR_PROPS]) scene.add(buildProp(prop))
     this.buildLandmarks()
+    this.coins = new CoinFlights(scene)
+    this.yieldGlow = new YieldGlow(scene)
+    // After the decorations and landmarks: it collects their moving parts once.
+    this.ambient = new Ambient(scene, !this.reducedMotion)
 
     const onVillages = (villages: Village[]) => {
       this.villages = villages
@@ -130,6 +155,8 @@ export class Town3d {
     const onMoved = ({ avatarId, to }: AvatarMoved) => {
       const avatar = this.avatars.get(avatarId)
       if (!avatar) return // React reloads `/avatars` for unknown ids.
+      // The money goes first, the merchant follows: coins leave from where it stands now.
+      if (avatar.villageId !== to) this.spawnCoins(avatar, to)
       avatar.villageId = to
       this.relayoutAvatars()
     }
@@ -139,6 +166,8 @@ export class Town3d {
       if (!avatar) return // not in the town yet; the next `/avatars` load has its level
       avatar.label.setText(nameTag(avatar.displayName, level))
       avatar.label.celebrate(text)
+      // Tried every frame in `update` until it plays (a walking merchant cheers when it arrives).
+      avatar.cheerPending = true
     }
     const onSpawnClone = (clone: AvatarSummary) => {
       if (this.avatars.has(clone.id)) return
@@ -167,12 +196,16 @@ export class Town3d {
     this.staleTimer = window.setInterval(() => this.redrawVillages(), STALE_REFRESH_MS)
   }
 
-  /** Advances walks and animations. Call once per frame. */
+  /** Advances walks, animations, coins, rings and background life. Call once per frame. */
   update(deltaSeconds: number): void {
     for (const avatar of this.avatars.values()) {
       if (avatar.walk) this.stepWalk(avatar, avatar.walk, deltaSeconds)
+      else this.stepStanding(avatar, deltaSeconds)
       avatar.body.update(deltaSeconds)
     }
+    this.coins.update(deltaSeconds)
+    this.yieldGlow.update(deltaSeconds)
+    this.ambient.update(deltaSeconds)
   }
 
   /**
@@ -202,6 +235,9 @@ export class Town3d {
     window.clearInterval(this.staleTimer)
     for (const avatar of this.avatars.values()) this.removeAvatar(avatar)
     this.avatars.clear()
+    this.coins.dispose()
+    this.yieldGlow.dispose()
+    this.ambient.dispose()
   }
 
   // ---- landmarks ----
@@ -240,6 +276,9 @@ export class Town3d {
     for (const sign of this.villageSigns.values()) sign.object.removeFromParent()
     this.villageSigns.clear()
 
+    const levels = apyGlowLevels(this.villages)
+    const rings: RingSpec[] = []
+
     for (const village of this.villages) {
       const district = this.districts.get(village.id)
       if (!district) continue
@@ -255,7 +294,14 @@ export class Town3d {
       sign.object.position.set(building.position.x, topOf(building) + LABEL_GAP, building.position.z)
       this.scene.add(sign.object)
       this.villageSigns.set(village.id, sign)
+
+      rings.push({
+        centre: { x: building.position.x, z: building.position.z },
+        radius: Math.max(district.building.w, district.building.h) / 2 + RING_MARGIN,
+        level: levels.get(village.id) ?? 0,
+      })
     }
+    this.yieldGlow.setRings(rings)
     this.refreshSigns()
   }
 
@@ -320,6 +366,8 @@ export class Town3d {
       villageId: summary.main_village,
       target: start,
       position: start,
+      cheerPending: false,
+      nextGesture: idleGestureDelay(Math.random()),
     }
     this.moveTo(avatar, start)
     return avatar
@@ -367,6 +415,42 @@ export class Town3d {
       }
       this.startWalk(avatar, walkPath(avatar.position, spot, previousPlace, place))
     }
+  }
+
+  /**
+   * Sends coins from where the merchant stands to where its money goes: the
+   * door of its new village, or the court fountain for "all cash" (`null`).
+   */
+  private spawnCoins(avatar: Avatar3d, to: string | null): void {
+    let destination: GroundPoint
+    if (to === null) {
+      destination = rectCentre(COURT_STATUE.tiles)
+    } else {
+      const district = this.districts.get(to)
+      if (!district) return // a village the town does not show
+      const { building } = district
+      // The door is the middle of the building's front (bottom) edge.
+      destination = { x: building.x + building.w / 2, z: building.y + building.h }
+    }
+    this.coins.spawn(toGround(avatar.position), destination)
+  }
+
+  /**
+   * A standing merchant: a waiting level-up cheer goes first, otherwise now
+   * and then a small gesture (background life, so not with reduced motion).
+   */
+  private stepStanding(avatar: Avatar3d, deltaSeconds: number): void {
+    if (avatar.cheerPending) {
+      if (avatar.body.playGesture(CHEER_CLIP)) avatar.cheerPending = false
+      return
+    }
+    if (this.reducedMotion) return
+    avatar.nextGesture -= deltaSeconds
+    if (avatar.nextGesture > 0) return
+    const gesture = IDLE_GESTURES[Math.floor(Math.random() * IDLE_GESTURES.length)]
+    // If it cannot play now (model still loading, a cheer running), it simply waits for the next turn.
+    avatar.body.playGesture(gesture)
+    avatar.nextGesture = idleGestureDelay(Math.random())
   }
 
   private startWalk(avatar: Avatar3d, path: Point[]): void {

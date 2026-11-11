@@ -17,6 +17,7 @@
 import {
   AnimationMixer,
   Box3,
+  LoopOnce,
   CapsuleGeometry,
   Color,
   Group,
@@ -64,6 +65,11 @@ function loadModel(model: CharacterModel): Promise<GLTF | null> {
 const IDLE_CLIP = 'Idle'
 const WALK_CLIP = 'Walking_A'
 
+/** One-off moves the KayKit models carry, played with `playGesture` (D80, D81). */
+export const CHEER_CLIP = 'Cheer'
+/** Small things a standing merchant does now and then: checking goods, handling them. */
+export const IDLE_GESTURES = ['Interact', 'Use_Item', 'PickUp'] as const
+
 function findClip(clips: AnimationClip[], name: string): AnimationClip | undefined {
   return clips.find((clip) => clip.name === name)
 }
@@ -100,6 +106,9 @@ export class CharacterBody {
   private mixer?: AnimationMixer
   private idle?: AnimationAction
   private walk?: AnimationAction
+  /** The one-off clip playing right now (a cheer, a gesture), if any. */
+  private gesture?: AnimationAction
+  private clips: AnimationClip[] = []
   private walking = false
   private disposed = false
   /** Drives the stand-in's little hop while it walks. */
@@ -124,6 +133,9 @@ export class CharacterBody {
   setWalking(walking: boolean): void {
     if (walking === this.walking) return
     this.walking = walking
+    // Walking always wins over a gesture still playing.
+    this.gesture?.fadeOut(BLEND_SECONDS)
+    this.gesture = undefined
     const [from, to] = walking ? [this.idle, this.walk] : [this.walk, this.idle]
     from?.fadeOut(BLEND_SECONDS)
     to?.reset().fadeIn(BLEND_SECONDS).play()
@@ -131,6 +143,27 @@ export class CharacterBody {
       this.standIn.position.y = 0
       this.standIn.rotation.z = 0
     }
+  }
+
+  /**
+   * Plays a clip of the model once (e.g. `Cheer`), then blends back to standing.
+   *
+   * @returns `false` when nothing was played: walking, the model not loaded
+   *   yet (the stand-in has no clips), another gesture still playing, or no
+   *   clip of that name. The caller decides whether to try again later.
+   */
+  playGesture(clipName: string): boolean {
+    if (this.walking || this.gesture || !this.mixer) return false
+    const clip = findClip(this.clips, clipName)
+    if (!clip) return false
+    const action = this.mixer.clipAction(clip)
+    action.setLoop(LoopOnce, 1)
+    // Hold the last pose until the blend back to idle, instead of snapping to the first one.
+    action.clampWhenFinished = true
+    this.idle?.fadeOut(BLEND_SECONDS)
+    action.reset().fadeIn(BLEND_SECONDS).play()
+    this.gesture = action
+    return true
   }
 
   /** Call once per frame with the seconds since the last frame. */
@@ -182,6 +215,14 @@ export class CharacterBody {
     this.tint(model, tint)
 
     this.mixer = new AnimationMixer(model)
+    this.clips = gltf.animations
+    // A one-off clip ended: blend back to standing.
+    this.mixer.addEventListener('finished', (event) => {
+      if (event.action !== this.gesture) return
+      this.gesture.fadeOut(BLEND_SECONDS)
+      this.gesture = undefined
+      this.idle?.reset().fadeIn(BLEND_SECONDS).play()
+    })
     const idleClip = findClip(gltf.animations, IDLE_CLIP)
     const walkClip = findClip(gltf.animations, WALK_CLIP)
     this.idle = idleClip && this.mixer.clipAction(idleClip)
