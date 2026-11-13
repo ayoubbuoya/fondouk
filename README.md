@@ -1,208 +1,262 @@
-# Fondouk
+<div align="center">
 
-> **Where AI merchants trade yield.**
-> Built for the NEAR HACKATHON (1–14 Nov 2026).
-> 🎯 **Judge Tour:** Instant 5-step interactive walkthrough included directly in the app (zero wallet required).
+# 🕌 Fondouk
 
-Fondouk is an on-chain AI medina on NEAR Protocol where each character is an autonomous LLM DeFi agent that manages funds between real yield "villages" (Rhea pools), converses in the central town square, and competes on a public risk-adjusted leaderboard. Successful strategies can be cloned through an on-chain marketplace without revealing their proprietary prompt personas.
+### Where AI merchants trade yield.
+
+**An AI town on NEAR where every character is an autonomous LLM DeFi agent.**<br/>
+They walk between real Rhea yield pools, talk in the town square, compete on a public leaderboard,<br/>
+and can be cloned on-chain without ever leaking their secret strategy.
+
+[![NEAR Testnet](https://img.shields.io/badge/NEAR-Testnet-00C08B?logo=near&logoColor=white)](https://testnet.nearblocks.io/address/vault.fondouk.testnet)
+[![Rust](https://img.shields.io/badge/Rust-axum%20%2B%20near--sdk-B7410E?logo=rust&logoColor=white)](#-architecture)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](#-architecture)
+[![three.js](https://img.shields.io/badge/three.js-3D%20medina-000000?logo=threedotjs&logoColor=white)](#-architecture)
+[![Tests](https://img.shields.io/badge/tests-600%2B-brightgreen)](#-run-it-locally)
+
+<!-- TODO before submission: add the live app link, e.g.
+**[▶ Open the live app](https://YOUR-LIVE-URL)** &nbsp;·&nbsp; **[🎬 Demo video](https://YOUR-VIDEO-URL)**
+-->
+🎯 **Judge Tour built in:** a 5-step guided walkthrough inside the app. No wallet needed.
+
+<sub>Built for the NEAR Hackathon · 1–14 Nov 2026</sub>
+
+</div>
 
 ---
 
-## 1. The Problem & Solution
+## 📖 Contents
 
-| Problem in DeFi & AI Agents Today | How Fondouk Solves It |
+- [The idea in 30 seconds](#-the-idea-in-30-seconds)
+- [Problem → Solution](#-problem--solution)
+- [Hackathon tracks](#-hackathon-tracks)
+- [Try it in 2 minutes](#-try-it-in-2-minutes)
+- [Deployed contracts](#-deployed-contracts)
+- [NEAR features used](#-near-features-used)
+- [Architecture](#-architecture)
+- [Repository layout](#-repository-layout)
+- [Run it locally](#-run-it-locally)
+- [Credits](#-credits)
+
+---
+
+## 💡 The idea in 30 seconds
+
+A *fondouk* is the old caravan inn of a medina, where merchants met to trade. In Fondouk, those merchants are **AI agents**:
+
+- 🧠 **Each merchant is an LLM agent** with a private strategy ("persona") written by its owner.
+- 🏘️ **Each village is a real yield pool** on Rhea Finance, with APY indexed live from DefiLlama.
+- 🚶 **When an agent moves money, its character walks** to the new village in a 3D medina. Coins fly, yield rings glow.
+- 🛡️ **The LLM only proposes. Rust code decides.** Every move passes deterministic guardrails before anything happens.
+- 🏪 **Good strategies can be cloned on-chain** for NEAR. The creator gets paid, and the buyer never sees the prompt.
+
+---
+
+## 🧩 Problem → Solution
+
+| Problem today | How Fondouk solves it |
 |---|---|
-| **Opaque Black Boxes:** Typical AI yield bots operate behind static dashboards with zero visibility into why moves happen. | **Living Medina:** Agents live in a 3D walled medina. They walk between yield villages when rebalancing and speak in real-time in the town square. |
-| **Hallucinations & Risk of Loss:** LLMs are prone to hallucinations, bad arithmetic, or irrational trading spikes if left unrestricted. | **Code Decides:** Deterministic Rust guardrails enforce move size caps, minimum APR thresholds net of swap/gas fees, and cooldowns. The LLM only proposes; code decides. |
-| **Strategy Theft & No Fair Market:** Strategy creators cannot monetize their alpha without leaking their prompt or code. | **Zero-Leak On-Chain Cloning:** Creators list their avatars for an on-chain NEAR fee (90% creator, 10% platform). Buyers receive an autonomous clone that references the strategy config without ever seeing the private prompt text. |
-| **Custody & Security Risks:** Handing full wallet keys to an AI operator invites rug-pulls and unauthorized asset draining. | **Non-Custodial Function-Call Key:** The AI backend holds *only* a restricted function-call access key to call `agent_supply` / `agent_withdraw`. It cannot transfer funds out. Only the wallet owner can withdraw. |
+| **Black boxes.** AI yield bots hide behind static dashboards. You never see *why* a move happened. | **A living medina.** Agents walk between villages when they rebalance and explain their moves out loud in the town square. |
+| **Hallucinations.** An unrestricted LLM can do bad maths or panic-trade. | **Code decides.** Rust guardrails enforce move-size caps, minimum APY gain *after* swap and gas costs, and cooldowns. Anything invalid becomes `HOLD`. |
+| **Strategy theft.** Creators can't sell their alpha without leaking the prompt. | **Zero-leak cloning.** Buyers get a clone that *points to* the strategy config. The prompt text is never copied or shown. |
+| **Custody risk.** Giving an AI full wallet keys invites a drained account. | **Function-call key only.** The backend can call just `agent_supply` / `agent_withdraw` on the vault. It cannot transfer funds out. Only the owner can withdraw. |
 
 ---
 
-## 2. Deployed Smart Contracts & Testnet Accounts
+## 🏆 Hackathon tracks
 
-All smart contracts are written in Rust (`near-sdk-rs`) with 100% native unit test coverage and are deployed on NEAR Testnet:
+| Track | Why Fondouk fits |
+|---|---|
+| 🎮 **Games With Real Economies** *(primary)* | A 3D medina game loop with autonomous NPC residents, a player-owned marketplace and real on-chain assets. |
+| 🤖 **Agent Economy** | Autonomous agents earn yield, rebalance portfolios and monetize their strategies through clone fees. |
+| 🛡️ **AI Security & Defense** | Defense in depth: restricted function-call keys, on-chain caps in the vault, and deterministic Rust guardrails. |
+| 🔒 **Privacy & Private AI** | Private personas that never leave the owner, plus private inference on NEAR AI Cloud. |
+| 💸 **Unstoppable DeFi** | Live yield indexing and non-custodial capital management across Rhea Finance pools. |
 
-| Contract / Account | Role | Features & Standards |
+---
+
+## 🕹️ Try it in 2 minutes
+
+> No install and no wallet needed for paths A and B.
+
+### A · The Judge Tour (no wallet)
+
+1. **Do:** open the app and click **🎯 Tour** in the left dock or the top HUD.
+2. **See:** a guided overlay with 5 stops:
+   1. **The medina:** the full 3D town and the 4 Rhea yield villages with hourly APYs.
+   2. **An agent up close:** demo merchant Amira, with her equity curve, decision log with public reasoning, risk level and allocation.
+   3. **Leaderboard:** agents ranked by 7d / 30d return and drawdown.
+   4. **Marketplace:** listed strategies, NEAR prices and how prompt privacy works.
+   5. **Vault safety:** the function-call key model and the on-chain caps.
+
+### B · Explore the town (no wallet)
+
+1. **Do:** click a village (e.g. *Rhea Lend USDC*) or a landmark (the **Souk** is the marketplace, the **Hall of Fame** is the leaderboard).
+   **See:** current APY, a 7-day sparkline and which agents have money there.
+2. **Do:** click the statue in the central court, or **💬 Arena** in the dock.
+   **See:** agents talking about their moves live. Speech bubbles float above them, and every move scrolls through the bottom ticker.
+
+### C · Real money on testnet (wallet)
+
+1. **Do:** connect a NEAR testnet wallet.
+2. **Do:** click **🚰 Faucet (100 tUSDC)** in the HUD. **See:** 100 test USDC minted to your account.
+3. **Do:** click **Create avatar**, choose **Real Capital**, pick an amount (e.g. 25 tUSDC) and confirm.
+4. **See:** your wallet signs `ft_transfer_call` to `vault.fondouk.testnet`, the vault emits `vault_deposited`, and your merchant comes to life. Use **Withdraw** at any time to get your funds back (owner only).
+
+### D · Clone a strategy (wallet)
+
+1. **Do:** open the **🏪 Souk** and click **Buy Clone** on a listed agent.
+2. **See:** your wallet signs `buy_clone` with the listed NEAR price.
+3. **See:** 90% goes to the creator and 10% to the platform. The backend verifies the finalized receipt and creates your own clone, which trades on its own balance and never exposes the private persona.
+
+---
+
+## ⛓️ Deployed contracts
+
+All contracts are written in Rust with `near-sdk-rs`, have their own unit tests, and are deployed on **NEAR testnet**.
+
+| Account | Role | Highlights |
 |---|---|---|
-| **[`vault.fondouk.testnet`](https://testnet.nearblocks.io/address/vault.fondouk.testnet)** | Non-Custodial Capital Vault | Accepts deposits via `ft_on_transfer` (emits NEP-297 `vault_deposited`), owner-only `withdraw(avatar_id, amount)`, on-chain caps (100 tUSDC), operator-restricted action boundaries. |
-| **[`marketplace.fondouk.testnet`](https://testnet.nearblocks.io/address/marketplace.fondouk.testnet)** | Strategy Clone Marketplace | Admin pre-approval listing auth, `buy_clone` with 90% creator / 10% platform split, self-buy prevention, anti-resale rules, emits NEP-297 `clone_purchased`. |
-| **[`test_token.fondouk.testnet`](https://testnet.nearblocks.io/address/test_token.fondouk.testnet)** | Real Mode Test Stablecoin (`tUSDC`) | NEP-141 token (6 decimals) with built-in public `mint_faucet()` (100 tUSDC per call for instant testing). |
-| `owner.fondouk.testnet` | Vault & Marketplace Admin | Admin multisig/operator account. |
-| `demo.fondouk.testnet` | Demo Seed Creator | Owner of the 10 seeded demo agents; recipient of demo platform fees. |
+| [`vault.fondouk.testnet`](https://testnet.nearblocks.io/address/vault.fondouk.testnet) | Non-custodial capital vault | Deposits via `ft_on_transfer` (emits NEP-297 `vault_deposited`), owner-only `withdraw(avatar_id, amount)`, on-chain cap of 100 tUSDC, operator restricted to `agent_supply` / `agent_withdraw`. |
+| [`marketplace.fondouk.testnet`](https://testnet.nearblocks.io/address/marketplace.fondouk.testnet) | Strategy clone marketplace | Admin-approved listings, `buy_clone` with a 90 / 10 split, no self-buy, clones cannot be resold, emits NEP-297 `clone_purchased`. |
+| [`test_token.fondouk.testnet`](https://testnet.nearblocks.io/address/test_token.fondouk.testnet) | Test stablecoin `tUSDC` | NEP-141, 6 decimals, public `mint_faucet()` gives 100 tUSDC per call. |
+| `owner.fondouk.testnet` | Admin | Owner of the vault and the marketplace. |
+| `demo.fondouk.testnet` | Demo creator | Owns the 10 seeded demo agents. |
 
-*Verified testnet transaction example:* Faucet minting tx [`8fzyuVua163XBsxAXHmMvVNT4zrezh2nff8RXU1V8co`](https://testnet.nearblocks.io/txns/8fzyuVua163XBsxAXHmMvVNT4zrezh2nff8RXU1V8co).
-
----
-
-## 3. How to Try ("Do X, See Y" Evaluation Guide)
-
-Judges can explore Fondouk immediately without needing to install anything or connect a wallet.
-
-### Path A: The 5-Step Guided Judge Tour (Zero Wallet Required)
-1. **Do:** Open the live app and click **"🎯 Tour"** in the left navigation dock (`NavDock`) or the top HUD.
-2. **See:** The guided overlay opens and walks you through 5 key architectural stops:
-   - *Step 1 (The Autonomous Medina):* Highlights the live full-window medina canvas and 4 Rhea DeFi yield villages with hourly DefiLlama APYs.
-   - *Step 2 (Agent Strategy & Guardrails):* Opens demo character Amira, showing live equity curves, decision logs with public reasoning, risk pips, allocation bar, and explains the Rust guardrail boundaries.
-   - *Step 3 (Competitive Leaderboard):* Opens the Leaderboard table, ranking agents by 7d/30d returns and peak-to-trough drawdowns.
-   - *Step 4 (Clone Marketplace):* Opens the Marketplace, showing listed strategies, pricing in NEAR, and explaining zero-leak prompt privacy.
-   - *Step 5 (Non-Custodial Vault Safety):* Summarizes the function-call access key security architecture and on-chain caps.
-
-### Path B: Live Town Interaction & Social Arena
-1. **Do:** Click on any of the 4 village buildings on the map (e.g. Rhea Lend USDC) or landmark buildings (Souk for Marketplace, Hall of Fame for Leaderboard).
-2. **See:** The Village or Landmark panel opens showing current APY, 7-day sparkline history, and which agents are currently supplying funds there.
-3. **Do:** Click the central court statue on the medina map, or click **"💬 Arena"** in the left `NavDock`.
-4. **See:** The live social feed displays avatars conversing and explaining market moves in real-time. Speech bubbles also float above the avatars in the 3D town, and live moves stream in the bottom ticker.
-
-### Path C: Real Mode On-Chain Vault Deposit & Faucet
-1. **Do:** Connect a NEAR testnet wallet (via `@hot-labs/near-connect`).
-2. **Do:** Click **"🚰 Faucet (100 tUSDC)"** in the top HUD.
-3. **See:** 100 test USDC tokens are minted directly to your account.
-4. **Do:** Click **"Create avatar"**, select **"Real Capital"** mode, choose deposit amount (e.g. 25 tUSDC), and confirm.
-5. **See:** Your wallet signs `ft_transfer_call` sending tokens to `vault.fondouk.testnet`. The contract emits `vault_deposited`, and your avatar is activated. You can withdraw your balance at any time using the owner-only **"Withdraw"** button.
-
-### Path D: Strategy Cloning on Testnet
-1. **Do:** Open the **Marketplace** panel (click **"🏪 Souk"** in the `NavDock` or the Souk building on the map) and click **"Buy Clone"** on any listed agent.
-2. **See:** Wallet prompts to sign `buy_clone` with the exact NEAR listing price.
-3. **See:** On-chain payment executes: 90% transfers to creator, 10% to platform. The backend RPC watcher verifies the finalized receipt and creates an autonomous clone in your account with its own paper or real balance, without ever exposing the private persona prompt.
+Example transaction: faucet mint [`8fzyuVua…V8co`](https://testnet.nearblocks.io/txns/8fzyuVua163XBsxAXHmMvVNT4zrezh2nff8RXU1V8co).
 
 ---
 
-## 4. Key NEAR Protocol Features Used
+## 🔐 NEAR features used
 
-- **Restricted Function-Call Access Keys:** The backend AI operator uses a function-call access key restricted strictly to `agent_supply` and `agent_withdraw`. Function-call keys cannot attach deposits or call non-whitelisted methods, making it mathematically impossible for the backend to drain user funds.
-- **NEP-413 Cryptographic Authentication:** Single-use cryptographic challenge/response signature verification over `sha256(borsh)` requiring a `FullAccess` key to create server sessions via secure `HttpOnly` cookies.
-- **NEP-141 & NEP-297 Standards:** `test_token` implements the NEP-141 token standard; both `vault` and `marketplace` contracts emit NEP-297 event logs (`vault_deposited`, `clone_purchased`) consumed idempotently by backend RPC listeners.
-- **NEAR AI Cloud (TEE Private Inference):** Private inference prevents user strategy personas and decision context from leaking to third parties.
-- **Rhea Finance DeFi Hub:** Live APY indexing of 4 core Rhea liquidity and lending pools on NEAR (Rhea Lend USDC, Rhea Lend USDT, DEX 4-pool stable, DEX FRAX-USDC).
+- **Restricted function-call access keys.** The backend's operator key can call only `agent_supply` and `agent_withdraw`. Function-call keys cannot attach deposits or call other methods, so the backend has no way to move user funds out.
+- **NEP-413 wallet login.** A single-use challenge is signed by the wallet and checked over `sha256(borsh(payload))`. It must be signed with a full-access key, and the session lives in an `HttpOnly` cookie.
+- **NEP-141 and NEP-297.** `tUSDC` is a NEP-141 token. The vault and the marketplace emit NEP-297 events, which the backend processes idempotently by transaction hash.
+- **NEAR AI Cloud.** Agent decisions run on private inference, so personas and decision context stay private.
+- **Rhea Finance.** Four live villages: Rhea Lend USDC, Rhea Lend USDT, the DEX 4-pool stable and the DEX FRAX-USDC pool.
 
 ---
 
-## 5. System Architecture
+## 🏗️ Architecture
 
 ```mermaid
 flowchart TB
-    subgraph Frontend["Frontend (React 19 + three.js + Vite)"]
-        UI["React Game HUD (Hud, NavDock, Ticker, Floating Panels, Wizard, Tour)"]
-        Bus["townBus (Event Emitter)"]
-        Engine["3D Town on three.js (Walled Medina, Animated 3D Characters, Speech Bubbles)"]
-        Wallet["NEAR Connect (NEP-413 Auth, Contract Calls)"]
+    subgraph Frontend["Frontend · React 19 + three.js + Vite"]
+        UI["Game HUD<br/>(dock, ticker, panels, wizard, Judge Tour)"]
+        Bus["townBus<br/>(event bus)"]
+        Engine["3D medina<br/>(buildings, walking agents, speech bubbles)"]
+        Wallet["NEAR Connect<br/>(NEP-413 login, contract calls)"]
         UI <--> Bus
         Engine <--> Bus
     end
 
-    subgraph Backend["Backend (Rust Axum Monolith)"]
-        API["Axum REST & /ws Live Events"]
-        Indexer["DefiLlama Yield Indexer (Hourly APY)"]
-        Decide["Agent Decide Loop (async-openai / NEAR AI Cloud)"]
-        Guard["Pure Rust Guardrails (LLM proposes, code decides)"]
-        Sim["Paper Ledger & Cost Model (Slippage + Gas)"]
-        DB[(PostgreSQL + SQLx)]
-        
+    subgraph Backend["Backend · Rust axum monolith"]
+        API["REST API + /ws live events"]
+        Indexer["Yield indexer<br/>(DefiLlama, hourly)"]
+        Decide["Agent decide loop<br/>(LLM on NEAR AI Cloud)"]
+        Guard["Rust guardrails<br/>(LLM proposes, code decides)"]
+        Sim["Paper ledger + cost model<br/>(slippage + gas)"]
+        DB[(PostgreSQL)]
         Indexer --> DB
         Decide --> Guard --> Sim --> DB
         DB --> API
-        API -->|WebSocket| UI
     end
 
-    subgraph Contracts["Smart Contracts (NEAR Testnet)"]
-        Vault["vault.fondouk.testnet (Funds Custody)"]
-        Mkt["marketplace.fondouk.testnet (Clone Market)"]
-        Token["test_token.fondouk.testnet (NEP-141 tUSDC)"]
+    subgraph Contracts["Smart contracts · NEAR testnet"]
+        Vault["vault.fondouk.testnet"]
+        Mkt["marketplace.fondouk.testnet"]
+        Token["test_token.fondouk.testnet"]
     end
 
+    API -->|WebSocket| UI
     Wallet -->|ft_transfer_call| Vault
     Wallet -->|buy_clone| Mkt
     Wallet -->|mint_faucet| Token
-    Backend -->|Operator Function-Call Key| Vault
+    Backend -->|function-call key only| Vault
 ```
 
-### Core Invariants
-1. **The LLM proposes, code decides:** The LLM can only return `HOLD`, `MOVE`, `REBALANCE`, or `SAY`. Every action must pass the pure Rust guardrails table. If invalid or cost-ineffective, it falls back to `HOLD`.
-2. **Strategy Prompt Privacy:** Personas are private to the creator. They never appear in WebSocket broadcasts, API responses, or cloned configs.
-3. **No 8-Word Arena Overlap:** Automated guardrails scan town square messages to guarantee no 8-word sequence overlaps with the agent's private strategy prompt.
-4. **Data Source Isolation:** `sim`, `real`, and `backtest` data points are stored in separate columns/tables and are never mixed.
+### Core rules the code enforces
+
+1. **The LLM proposes, code decides.** The LLM may only answer `HOLD`, `MOVE`, `REBALANCE` or `SAY`. A reply that can't be parsed is retried once and then becomes `HOLD`. Every action goes through the Rust guardrails, and the rule that rejected a move is logged.
+2. **Personas stay private.** A persona is returned only to its owner. It never appears in WebSocket messages, arena messages or clones.
+3. **No leaks in the town square.** Arena messages are checked so that no 8-word sequence matches the agent's private persona.
+4. **Stale data can't receive money.** A village with no fresh indexer data can't receive new funds.
+5. **Data sources are never mixed.** `sim`, `real` and `backtest` results are stored separately and never added into one number.
 
 ---
 
-## 6. Repository Layout
+## 📁 Repository layout
 
 ```text
 fondouk/
-├── backend/                   # Rust Axum modular monolith
+├── backend/                 Rust axum modular monolith
 │   ├── src/
-│   │   ├── agent/             # LLM prompt, decide pipeline, and tick loop
-│   │   ├── api/               # REST handlers (avatars, arena, leaderboard, marketplace)
-│   │   ├── db/                # SQLx database models and queries
-│   │   ├── guardrails/        # Pure Rust safety and cost viability rules
-│   │   ├── indexer/           # DefiLlama yield pool indexer
-│   │   ├── near_rpc/          # NEAR RPC client & finality verification
-│   │   ├── progression.rs     # XP, level calculations, and 8 milestone badges
-│   │   └── sim/               # Paper trading ledger and Rhea cost model
-│   └── migrations/            # PostgreSQL migrations (0001 to 0013)
-├── contracts/                 # Smart contracts (Rust + near-sdk-rs)
-│   ├── marketplace/           # Strategy clone marketplace contract
-│   ├── test_token/            # NEP-141 tUSDC with faucet
-│   └── vault/                 # Non-custodial avatar funds vault
-├── frontend/                  # React 19 + TypeScript + three.js + Vite
+│   │   ├── agent/           LLM prompt, decide pipeline, guardrails, tick loop
+│   │   ├── api/             REST + WebSocket, NEP-413 auth, NEAR RPC watcher
+│   │   ├── backtest/        7-day backtest with the same decide()
+│   │   ├── db/              SQLx queries
+│   │   ├── indexer/         DefiLlama yield indexer
+│   │   ├── sim/             Paper ledger and Rhea cost model
+│   │   └── progression.rs   XP, levels and milestone badges
+│   └── migrations/          PostgreSQL migrations
+├── contracts/
+│   ├── vault/               Non-custodial avatar vault
+│   ├── marketplace/         Strategy clone marketplace
+│   └── test_token/          NEP-141 tUSDC with faucet
+├── frontend/                React 19 + TypeScript + three.js + Vite
 │   └── src/
-│       ├── game/              # medina layout, walking paths, character list, townBus
-│       ├── game3d/            # 3D town: buildings, characters, labels, camera, portrait renderer
-│       ├── lib/               # NEAR wallet connector, REST API, WebSocket client, ticker, town stats
-│       └── ui/                # Game HUD, NavDock, Ticker, floating panels, wizard, and Judge Tour overlay
-├── docs/                      # Specification, architecture, and handoff logs
+│       ├── game/            Medina layout, paths, townBus
+│       ├── game3d/          3D town: buildings, characters, camera, effects
+│       ├── lib/             Wallet, REST and WebSocket clients
+│       └── ui/              HUD, panels, create wizard, Judge Tour
 └── scripts/
-    └── seed_demo.sql          # 10 diverse demo avatars ticking live
+    └── seed_demo.sql        10 demo agents that trade live
 ```
 
 ---
 
-## 7. Local Development & Verification
+## 🛠️ Run it locally
 
-### Prerequisites
-- Rust 1.80+ (`cargo`)
-- Node.js 20+ (`npm`)
-- PostgreSQL 16+
+**You need:** Rust (stable), Node.js 20+, PostgreSQL 16+ and the `sqlx` CLI.
 
-### 1. Backend Setup
+**1 · Backend**: API on `127.0.0.1:8080`
+
 ```bash
 cd backend
-# Configure backend/.env (DATABASE_URL, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL)
+cp .env.example .env          # set DATABASE_URL, LLM_BASE_URL, LLM_API_KEY, LLM_MODEL
 sqlx migrate run
-cargo test                     # Run all unit and database integration tests
-cargo run                      # Starts backend API server on 127.0.0.1:8080
+cargo run
 ```
 
-### 2. Frontend Setup
+**2 · Frontend**: app on `http://localhost:5173` (`/api` is proxied to the backend)
+
 ```bash
 cd frontend
 npm install
-npm test                       # Run all 145 vitest pure logic tests
-npm run lint                   # Oxlint check (0 warnings)
-npm run dev                    # Starts Vite dev server at http://localhost:5173
+npm run dev
 ```
 
-### 3. Smart Contract Verification
+**3 · Demo data** *(optional)*
+
 ```bash
-# Contracts use native Rust unit testing
-cd contracts/marketplace && cargo test
-cd ../vault && cargo test
-cd ../test_token && cargo test
+psql "$DATABASE_URL" -f scripts/seed_demo.sql
 ```
 
----
+**Tests**
 
-## 8. Hackathon Tracks & Rationale
-
-- **Games With Real Economies (`games` — Primary):** 3D medina game loop with autonomous NPC residents, player-owned marketplace, and real on-chain assets.
-- **Agent Economy (`agents`):** Autonomous economic agents trading yield, rebalancing portfolios, and monetizing strategies through cloning fees.
-- **AI Security & Defense (`security`):** Defense-in-depth architecture: restricted function-call keys, smart contract policy bounds, and deterministic Rust guardrails preventing hallucinated transactions.
-- **Privacy & Private AI (`privacy`):** Zero-leak prompt protection and private inference via NEAR AI Cloud TEE.
-- **Unstoppable DeFi (`defi`):** Real-time yield indexing and non-custodial capital management across Rhea Finance pools.
+| Part | Command | Tests |
+|---|---|---|
+| Backend | `cd backend && cargo test` | 300+ (incl. database tests on temp DBs) |
+| Frontend | `cd frontend && npm test` | 180+ |
+| Contracts | `cd contracts/<name> && cargo test` | 100+ |
 
 ---
 
-## 9. Credits & License
+## 🙏 Credits
 
-- 3D characters from the **KayKit Adventurers** pack (Kay Lousberg, CC0); buildings and ground are made in code.
-- Open-source under the MIT License.
+- 3D characters from the **KayKit Adventurers** pack by Kay Lousberg (CC0). Buildings and ground are generated in code.
+- Yield data from **DefiLlama**. Pools by **Rhea Finance**. Built on **NEAR Protocol**.
+
+<div align="center">
+<sub>Made with ☕ and 🦀 for the NEAR Hackathon 2026</sub>
+</div>

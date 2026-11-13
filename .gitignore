@@ -12,3 +12,7 @@ dist/
 
 
 AGENTS.md
+# Internal docs and AI instructions: kept locally, not published
+docs/
+dev-docs/
+CLAUDE.md
